@@ -45,6 +45,18 @@
             <groupId>com.alibaba</groupId>
             <artifactId>druid-spring-boot-3-starter</artifactId>
         </dependency>
+        <!-- ShardingSphere-JDBC：在 JDBC 层透明分库分表 -->
+        <dependency>
+            <groupId>org.apache.shardingsphere</groupId>
+            <artifactId>shardingsphere-jdbc</artifactId>
+            <exclusions>
+                <!-- 这是个测试工具，运行期不需要，maven 中央仓库也没发布 -->
+                <exclusion>
+                    <groupId>org.apache.shardingsphere</groupId>
+                    <artifactId>shardingsphere-test-util</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <!-- Nacos / Feign -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>

@@ -33,8 +33,9 @@ public class OrderController {
     @Idempotent(prefix = "order:create:", ttl = 60)
     @PostMapping
     public R<OrderVO> create(Authentication auth, @Valid @RequestBody OrderCreateRequest req) {
-        // 这里 userId 暂用 username 的 hashCode 作占位（Phase 2 内存用户没真 id）
-        Long userId = Math.abs((long) auth.getName().hashCode());
+        // Phase 3.3 演示分片：用 username 长度（admin=5→orders_1, user=4→orders_0）
+        // Phase 1.4 接 DB 后改用真实 user.id
+        Long userId = (long) auth.getName().length();
         return R.ok(service.create(userId, req));
     }
 

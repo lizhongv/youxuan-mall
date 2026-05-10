@@ -1,0 +1,38 @@
+# ShardingSphere-JDBC 5.5.0 单库分表配置
+# 应用层代码用逻辑表名 orders，ShardingSphere 路由到 orders_0 / orders_1
+
+dataSources:
+  ds:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/platform_cloud?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: '12345678'
+    maximumPoolSize: 20
+    minimumIdle: 5
+
+rules:
+  - !SHARDING
+    tables:
+      orders:
+        actualDataNodes: ds.orders_${0..1}
+        tableStrategy:
+          standard:
+            shardingColumn: user_id
+            shardingAlgorithmName: orders_inline
+        # 雪花 ID 由应用侧 MyBatis-Plus 生成；这里不重复指定 keyGenerateStrategy
+    shardingAlgorithms:
+      orders_inline:
+        type: INLINE
+        props:
+          algorithm-expression: orders_${user_id % 2}
+  # 不分片的单表（order_item / undo_log 等）走默认数据源
+  - !SINGLE
+    tables:
+      - "ds.order_item"
+      - "ds.undo_log"
+      - "ds.flyway_schema_history"
+    defaultDataSource: ds
+
+props:
+  sql-show: true   # 控制台打印改写后的 SQL，方便看路由
