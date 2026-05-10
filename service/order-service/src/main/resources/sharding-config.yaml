@@ -1,8 +1,8 @@
-# ShardingSphere-JDBC 5.5.0 单库分表配置
-# 应用层代码用逻辑表名 orders，ShardingSphere 路由到 orders_0 / orders_1
+# ShardingSphere-JDBC 5.5.0 综合配置：分片 + 读写分离
+# 应用代码用逻辑表名 orders，写走 master，读走 slave_*；分片在 master/slave 各自的 0/1 表上同形
 
 dataSources:
-  ds:
+  master_ds:
     dataSourceClassName: com.zaxxer.hikari.HikariDataSource
     driverClassName: com.mysql.cj.jdbc.Driver
     jdbcUrl: jdbc:mysql://localhost:3306/platform_cloud?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
@@ -10,8 +10,38 @@ dataSources:
     password: '12345678'
     maximumPoolSize: 20
     minimumIdle: 5
+  # Phase 3.4 演示：slave 暂指向同一 MySQL（生产换成只读副本 IP 即可）
+  slave_0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/platform_cloud?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: '12345678'
+    maximumPoolSize: 10
+  slave_1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/platform_cloud?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: '12345678'
+    maximumPoolSize: 10
 
 rules:
+  # 1) 读写分离：把 master_ds + slave_0/1 合成逻辑数据源 ds
+  #    write 走 master_ds；read 走 slave_0/1（轮询 ROUND_ROBIN）
+  - !READWRITE_SPLITTING
+    dataSources:
+      ds:
+        writeDataSourceName: master_ds
+        readDataSourceNames:
+          - slave_0
+          - slave_1
+        loadBalancerName: round_robin
+    loadBalancers:
+      round_robin:
+        type: ROUND_ROBIN
+
+  # 2) 分片：在逻辑数据源 ds 上做 orders 水平分表
   - !SHARDING
     tables:
       orders:
@@ -20,13 +50,13 @@ rules:
           standard:
             shardingColumn: user_id
             shardingAlgorithmName: orders_inline
-        # 雪花 ID 由应用侧 MyBatis-Plus 生成；这里不重复指定 keyGenerateStrategy
     shardingAlgorithms:
       orders_inline:
         type: INLINE
         props:
           algorithm-expression: orders_${user_id % 2}
-  # 不分片的单表（order_item / undo_log 等）走默认数据源
+
+  # 3) 单表（不分片，但仍走读写分离）
   - !SINGLE
     tables:
       - "ds.order_item"
@@ -35,4 +65,4 @@ rules:
     defaultDataSource: ds
 
 props:
-  sql-show: true   # 控制台打印改写后的 SQL，方便看路由
+  sql-show: true
