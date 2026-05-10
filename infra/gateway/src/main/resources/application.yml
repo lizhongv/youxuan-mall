@@ -1,0 +1,76 @@
+server:
+  port: ${SERVER_PORT:8888}
+  shutdown: graceful
+
+spring:
+  profiles:
+    active: dev
+  cloud:
+    gateway:
+      # 全局 CORS（Phase 6 前端用）
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origin-patterns:
+              - "*"
+            allowed-methods: "*"
+            allowed-headers: "*"
+            allow-credentials: true
+            max-age: 3600
+      # 默认过滤器：把 X-Forwarded-* 头补全；并加 X-Gateway 标识
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin, RETAIN_UNIQUE
+        - AddResponseHeader=X-Gateway, platform-cloud
+      discovery:
+        locator:
+          enabled: false        # 关掉自动按服务名做 /service-name/** 的路由，由我们显式配
+      routes:
+        - id: auth-route
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - PreserveHostHeader
+        - id: goods-route
+          uri: lb://goods-service
+          predicates:
+            - Path=/api/goods/**
+          filters:
+            - PreserveHostHeader
+        - id: order-route
+          uri: lb://order-service
+          predicates:
+            - Path=/api/orders/**
+          filters:
+            - PreserveHostHeader
+
+spring.cloud.sentinel:
+  transport:
+    dashboard: ${SENTINEL_DASHBOARD:localhost:8858}
+    port: 8720
+  eager: true
+  scg:
+    fallback:
+      mode: response
+      response-status: 429
+      content-type: application/json
+      response-body: '{"code":42900,"msg":"网关限流：请求过于频繁","data":null,"ts":0}'
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,gateway
+  endpoint:
+    health:
+      show-details: when-authorized
+    gateway:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
+    org.springframework.cloud.gateway.handler.RoutePredicateHandlerMapping: DEBUG

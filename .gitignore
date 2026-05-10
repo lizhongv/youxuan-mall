@@ -1,0 +1,44 @@
+# Maven
+target/
+*.jar
+*.war
+!**/src/main/**/*.jar
+!**/src/test/**/*.jar
+# 注意：mvnw / mvnw.cmd / .mvn/wrapper/ 必须提交，让团队/CI 不依赖系统 Maven
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.project
+.classpath
+.settings/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Local env
+.env
+docker-compose.override.yml
+
+# Build output
+build/
+out/
+dist/
+
+# 运行时产生
+bootstrap.log
+auth.log
+goods.log
+order.log
+gateway.log
+*-err.log
+bootstrap.pid

@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: auth-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+        # 暂不开启鉴权，Phase 2 后期接入

@@ -1,0 +1,56 @@
+server:
+  port: 8080
+  shutdown: graceful
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+spring:
+  application:
+    name: bootstrap-app
+  profiles:
+    active: dev
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+# Actuator + Prometheus 指标暴露
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env,beans
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# Knife4j / OpenAPI 3
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+  api-docs:
+    enabled: true
+
+# 日志配置在 logback-spring.xml（按 profile 控制 dev/prod/test）
+
+# 平台自定义配置
+platform:
+  jwt:
+    # 开发用密钥（≥ 32 字节）；生产环境务必通过环境变量注入
+    secret: ${PLATFORM_JWT_SECRET:platform-cloud-dev-jwt-hs256-secret-do-not-use-in-prod-32bytes-min}
+    access-ttl: PT30M
+    refresh-ttl: P7D
+    issuer: platform-cloud

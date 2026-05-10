@@ -1,0 +1,10 @@
+# Phase 1 烟雾测试配置：禁用外部依赖，让 contextLoads 不依赖本地 MySQL/Redis 真实启动
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration
+      - org.flywaydb.flyway.autoconfigure.FlywayAutoConfiguration

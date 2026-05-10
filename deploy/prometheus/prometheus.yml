@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # 抓取宿主机上跑的 Spring Boot 应用（actuator/prometheus 端点）
+  # Spring Boot 默认端口配置在各服务的 application.yml 中
+  - job_name: bootstrap-app
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          app: bootstrap-app
+          env: dev
+
+  # Phase 2 起加入：
+  # - job_name: gateway
+  #   metrics_path: /actuator/prometheus
+  #   static_configs:
+  #     - targets: ["host.docker.internal:8000"]
+  # - job_name: order-service
+  #   ...
