@@ -62,7 +62,7 @@
         <!-- 中间件客户端 -->
         <redisson.version>3.36.0</redisson.version>
         <rocketmq-spring.version>2.3.1</rocketmq-spring.version>
-        <elasticsearch.version>8.15.3</elasticsearch.version>
+        <!-- elasticsearch.version 删掉：让 Spring Boot 3.3.5 BOM 自管，避免 IndexResponse.seqNo() API 不兼容 -->
 
         <!-- 安全 -->
         <jjwt.version>0.12.6</jjwt.version>
@@ -142,12 +142,7 @@
                 <version>${rocketmq-spring.version}</version>
             </dependency>
 
-            <!-- Elasticsearch Java Client（Spring Boot 3 已集成 8.x） -->
-            <dependency>
-                <groupId>co.elastic.clients</groupId>
-                <artifactId>elasticsearch-java</artifactId>
-                <version>${elasticsearch.version}</version>
-            </dependency>
+            <!-- Elasticsearch Java Client：版本由 Spring Boot BOM 管 -->
 
             <!-- JJWT -->
             <dependency>

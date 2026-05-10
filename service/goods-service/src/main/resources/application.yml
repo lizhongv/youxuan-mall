@@ -39,6 +39,18 @@ spring:
   # Flyway 由 bootstrap-app 主导（已迁移到 V2），独立启动 goods-service 时无需再跑
   flyway:
     enabled: false
+  elasticsearch:
+    uris: ${ES_URIS:http://localhost:9200}
+    socket-timeout: 5s
+    connection-timeout: 3s
+
+# Canal TCP Pull
+canal:
+  host: ${CANAL_HOST:localhost}
+  port: ${CANAL_PORT:11111}
+  destination: example
+  # 单反斜杠：YAML 里原样给 canal-client 编译为正则 `\.`（字面点）
+  subscribe: 'platform_cloud\.goods.*'
 
 mybatis-plus:
   configuration:
