@@ -24,20 +24,19 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 双缓存：
+ * 三档 CacheManager：
  * <ul>
- *     <li>@Primary {@code caffeineCacheManager}：进程内热点缓存（毫秒级）</li>
- *     <li>{@code redisCacheManager}：分布式共享缓存（Phase 2 多实例时跨节点一致）</li>
+ *     <li>@Primary {@code multiLevelCacheManager}：Caffeine L1 + Redis L2，所有 @Cacheable 默认用</li>
+ *     <li>{@code caffeineCacheManager}：纯进程内（极致快但不跨节点）</li>
+ *     <li>{@code redisCacheManager}：纯分布式（跨节点一致但有网络往返）</li>
  * </ul>
- * 用法：默认 {@code @Cacheable("key")} 走 Caffeine；
- * 跨节点共享走 {@code @Cacheable(cacheManager = "redisCacheManager", value = "key")}.
+ * 想强制单层用 {@code @Cacheable(cacheManager = "caffeineCacheManager", ...)} 即可。
  */
 @Configuration
 @EnableCaching
 public class CacheConfig {
 
     @Bean
-    @Primary
     public CacheManager caffeineCacheManager() {
         CaffeineCacheManager mgr = new CaffeineCacheManager();
         mgr.setCaffeine(Caffeine.newBuilder()
@@ -57,6 +56,24 @@ public class CacheConfig {
                 .disableCachingNullValues()
                 .prefixCacheNameWith("platform:cache:");
         return RedisCacheManager.builder(cf).cacheDefaults(config).build();
+    }
+
+    @Bean
+    @Primary
+    public MultiLevelCacheManager multiLevelCacheManager(
+            CacheManager caffeineCacheManager,
+            CacheManager redisCacheManager,
+            CacheInvalidator invalidator) {
+        return new MultiLevelCacheManager(caffeineCacheManager, redisCacheManager, invalidator);
+    }
+
+    /** Redis pub/sub 监听容器，给 CacheInvalidationSubscriber 使用 */
+    @Bean
+    public org.springframework.data.redis.listener.RedisMessageListenerContainer redisMessageListenerContainer(
+            RedisConnectionFactory cf) {
+        var c = new org.springframework.data.redis.listener.RedisMessageListenerContainer();
+        c.setConnectionFactory(cf);
+        return c;
     }
 
     private GenericJackson2JsonRedisSerializer jacksonSerializer() {
