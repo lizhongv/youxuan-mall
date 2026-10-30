@@ -13,7 +13,7 @@ import java.time.format.DateTimeFormatter;
 /**
  * JSON 序列化约定。
  * <ul>
- *   <li>Long 输出为字符串：雪花 ID 超过 JS 安全整数 2^53，前端直接用数字会丢精度。</li>
+ *   <li>包装类型 Long 输出为字符串（ID 都用包装类型；分页 total 等用基本类型 long，仍输出数字）：雪花 ID 超过 JS 安全整数 2^53，前端直接用数字会丢精度。</li>
  *   <li>时间统一 yyyy-MM-dd HH:mm:ss，前后端不用各自转换时区和格式。</li>
  * </ul>
  */
@@ -27,7 +27,6 @@ public class JacksonConfig {
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern(DATE_TIME_PATTERN);
         return builder -> builder
                 .serializerByType(Long.class, ToStringSerializer.instance)
-                .serializerByType(Long.TYPE, ToStringSerializer.instance)
                 .serializerByType(LocalDateTime.class, new LocalDateTimeSerializer(fmt))
                 .deserializerByType(LocalDateTime.class, new LocalDateTimeDeserializer(fmt));
     }
