@@ -311,3 +311,24 @@ APPLYING ─拒绝─▶ REJECTED        APPLYING / WAIT_RETURN ─买家撤销�
 上传接口 `/admin/system/file/upload` 只需登录。
 
 字典类型（种子数据）：`express_company` 快递公司（顺丰、中通、圆通、韵达、申通、京东、EMS、极兔）、`aftersale_reason` 售后原因（不想要了、商品与描述不符、质量问题、少件/漏发、发错货、其他）、`cancel_reason` 取消原因（不想买了、信息填写错误、重复下单、其他）。
+
+---
+
+## 5. 实现补充（v1.0 落地时确定）
+
+| 项 | 约定 |
+|---|---|
+| 新增接口返回值 | `POST` 新增类接口返回新记录 ID；领取优惠券返回会员券 ID |
+| 字典下拉 | `GET /admin/system/dict/data/{dictType}`（只需登录）、`GET /app/public/dict/{dictType}`（公开），返回 `[{label, value}]` |
+| 商城端登出 | `POST /app/member/logout`，作废当前令牌 |
+| 售后类型 | `REFUND` 仅退款、`RETURN_REFUND` 退货退款；待发货订单的退款必须为该明细剩余可退全额（并回补库存） |
+| 订单日志 | `logs[] = {fromStatus, toStatus, operator, remark, createdAt}`，operator 为 `member:<id>` / `admin:<id>` / `system` |
+| 好评率 | `goodRate` 为 0–100 的整数（4–5 星占比），无评价时为 100 |
+| 秒杀库存 | `stock` 为活动划拨总量，剩余 = `stock − sold`；同一 SKU 启用中的活动时间不可重叠；秒杀订单不可用券、不享会员折扣 |
+| 运费 | 是否包邮按会员折扣后、用券前的金额判断，用券不会导致重新收运费 |
+| 改价 | `adjustAmount` 为订单总调整额（覆盖上次），按比例重新分摊到明细 |
+| 售后与发货 | 有进行中售后的订单不能发货，也暂停自动确认收货 |
+| 支付 | `pay` 返回 `{paid}`；接入微信/支付宝时新增 `PayChannel` 实现，回调走 `/app/public/pay/notify/{channel}` 并调用 `PayService.onPaid(payNo, channelNo)`（重复通知幂等） |
+| 会员资料 | 额外返回 `hasPassword`；验证码注册的会员首次设置密码时可不传 `oldPassword` |
+| 收藏 / 足迹项 | `{id(商品ID), name, pic, price, originalPrice, sales, onSale, favoritedAt / browsedAt}`；收藏上限 500，足迹保留最近 200 条 |
+| 令牌时效 | access 2 小时、refresh 7 天且每次刷新换新；冻结、停用、调权限在 access 过期或刷新时生效 |

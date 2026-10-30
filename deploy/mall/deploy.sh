@@ -44,7 +44,8 @@ cp -r "$ROOT/web/mall-h5/dist" "$OUT/web/h5"
 (cd "$OUT" && tar -czf ../mall-release.tgz .)
 
 echo "==> 上传并启动（$HOST）"
-if ssh "$HOST" "ver" >/dev/null 2>&1; then
+# Windows 的 OpenSSH 默认 shell 可能是 cmd 或 PowerShell，用 uname 判断 Linux 更可靠
+if ! ssh "$HOST" "uname -s" 2>/dev/null | grep -qi linux; then
   scp -q "$ROOT/build/mall-release.tgz" "$HOST:C:/mall/mall-release.tgz"
   ssh "$HOST" "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force C:/mall | Out-Null; tar -xzf C:/mall/mall-release.tgz -C C:/mall; powershell -NoProfile -ExecutionPolicy Bypass -File C:/mall/scripts/remote-up.ps1\""
   BASE_HOST="$(ssh -G "$HOST" | awk '/^hostname /{print $2}')"

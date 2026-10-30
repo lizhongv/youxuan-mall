@@ -1,0 +1,251 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  color: $text;
+  background: var(--mall-outer);
+  overflow-x: hidden;
+}
+
+#app {
+  position: relative;
+  max-width: $page-max;
+  min-height: 100vh;
+  margin: 0 auto;
+  background: $bg;
+  overflow-x: hidden;
+}
+
+// 桌面浏览器：两侧浅灰，中间像手机预览
+@media (min-width: 481px) {
+  #app {
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.06);
+  }
+}
+
+img {
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+// Vant 固定定位组件约束在内容区
+.van-tabbar--fixed,
+.van-submit-bar,
+.van-action-bar,
+.van-nav-bar--fixed {
+  left: 50% !important;
+  right: auto !important;
+  width: 100%;
+  transform: translateX(-50%);
+  max-width: $page-max;
+}
+
+.van-popup--bottom,
+.van-popup--top {
+  left: 50% !important;
+  right: auto !important;
+  width: 100%;
+  transform: translateX(-50%);
+  max-width: $page-max;
+}
+.van-popup--bottom.van-popup-slide-bottom-enter-from,
+.van-popup--bottom.van-popup-slide-bottom-leave-active {
+  transform: translate3d(-50%, 100%, 0);
+}
+.van-popup--top.van-popup-slide-top-enter-from,
+.van-popup--top.van-popup-slide-top-leave-active {
+  transform: translate3d(-50%, -100%, 0);
+}
+
+
+.page {
+  min-height: 100vh;
+  background: $bg;
+}
+
+.page-pad-bottom {
+  padding-bottom: calc(60px + #{$safe-bottom});
+}
+
+.card {
+  @include card;
+  margin: 10px $gap 0;
+  padding: 12px;
+}
+
+.text-primary {
+  color: $primary;
+}
+.text-2 {
+  color: $text-2;
+}
+.text-3 {
+  color: $text-3;
+}
+.ellipsis {
+  @include ellipsis(1);
+}
+.ellipsis-2 {
+  @include ellipsis(2);
+}
+
+.btn-gradient {
+  background: $gradient !important;
+  border: none !important;
+  color: #fff !important;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 2px 0 10px;
+  .more {
+    font-size: 12px;
+    font-weight: normal;
+    color: $text-3;
+  }
+}
+
+.safe-bottom {
+  padding-bottom: $safe-bottom;
+}
+
+.rich-text {
+  font-size: 14px;
+  line-height: 1.7;
+  color: $text-2;
+  word-break: break-word;
+  overflow-x: hidden;
+  img,
+  video {
+    max-width: 100% !important;
+    height: auto !important;
+    display: block;
+  }
+  table {
+    max-width: 100%;
+  }
+  p {
+    margin: 0;
+  }
+}
+
+/* 登录 / 注册 / 找回密码共用样式 */
+.auth {
+  background: $card;
+  &__head {
+    padding: 16px 28px 8px;
+  }
+  &__title {
+    font-size: 24px;
+    font-weight: 700;
+  }
+  &__sub {
+    margin-top: 8px;
+    font-size: 13px;
+    color: $text-3;
+  }
+  &__tabs {
+    display: flex;
+    gap: 24px;
+    padding: 20px 28px 4px;
+    span {
+      position: relative;
+      font-size: 16px;
+      color: $text-2;
+      padding-bottom: 6px;
+      &.active {
+        color: $text;
+        font-weight: 700;
+        &::after {
+          content: '';
+          position: absolute;
+          left: 50%;
+          bottom: 0;
+          width: 20px;
+          height: 3px;
+          margin-left: -10px;
+          border-radius: 2px;
+          background: $gradient;
+        }
+      }
+    }
+  }
+  &__form {
+    padding: 12px 28px 0;
+  }
+  &__field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 52px;
+    border-bottom: 1px solid $border;
+    input {
+      flex: 1;
+      min-width: 0;
+      height: 100%;
+      border: none;
+      outline: none;
+      background: transparent;
+      font-size: 16px;
+      color: $text;
+      &::placeholder {
+        color: $disabled;
+      }
+    }
+  }
+  &__prefix {
+    font-size: 16px;
+    padding-right: 10px;
+    border-right: 1px solid $border;
+  }
+  &__clear {
+    flex-shrink: 0;
+    color: $disabled;
+    font-size: 18px;
+  }
+  &__submit {
+    margin-top: 32px;
+    height: 46px;
+    font-size: 16px;
+  }
+  &__links {
+    display: flex;
+    justify-content: space-between;
+    padding: 16px 28px;
+    font-size: 14px;
+    color: $text-2;
+  }
+  &__agree {
+    display: flex;
+    justify-content: center;
+    padding: 40px 28px calc(24px + env(safe-area-inset-bottom));
+    font-size: 12px;
+    color: $text-3;
+    .van-checkbox__label {
+      color: $text-3;
+      font-size: 12px;
+    }
+  }
+}

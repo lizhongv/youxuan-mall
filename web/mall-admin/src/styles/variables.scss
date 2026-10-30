@@ -1,0 +1,169 @@
+// =====================================================================
+// 设计变量：颜色、圆角、阴影、间距只在此处定义，页面一律引用变量。
+// 运行时值用 CSS 自定义属性（支持浅色 / 深色切换），SCSS 变量只是它们的别名。
+// =====================================================================
+
+:root {
+  // ---- 品牌色：现代蓝紫。同时覆盖 Element Plus 的主色梯度 ----
+  --el-color-primary: #4f6ef7;
+  --el-color-primary-light-3: #849af9;
+  --el-color-primary-light-5: #a7b7fb;
+  --el-color-primary-light-7: #cad4fd;
+  --el-color-primary-light-8: #dce2fd;
+  --el-color-primary-light-9: #edf1fe;
+  --el-color-primary-dark-2: #3f58c6;
+
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-border-radius-round: 20px;
+  --el-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+
+  // ---- 应用级语义变量 ----
+  --app-primary: var(--el-color-primary);
+  --app-primary-soft: var(--el-color-primary-light-9);
+  --app-gradient: linear-gradient(135deg, #6b8bff 0%, #4f6ef7 45%, #7c4dff 100%);
+
+  --app-bg: #f3f5fa;
+  --app-card-bg: #ffffff;
+  --app-card-bg-muted: #f8f9fc;
+  --app-border: #ebeef5;
+  --app-border-strong: #dcdfe6;
+
+  --app-text: #1f2533;
+  --app-text-regular: #4a5163;
+  --app-text-secondary: #8a90a0;
+  --app-text-placeholder: #b4b9c6;
+
+  --app-sidebar-bg: #ffffff;
+  --app-sidebar-text: #4a5163;
+  --app-sidebar-text-active: var(--el-color-primary);
+  --app-sidebar-item-hover: #f3f5fb;
+  --app-sidebar-item-active: var(--el-color-primary-light-9);
+  --app-sidebar-group: #a1a7b6;
+  --app-header-bg: rgba(255, 255, 255, 0.86);
+  --app-tabs-bg: #ffffff;
+
+  --app-radius: 8px;
+  --app-radius-lg: 12px;
+  --app-radius-sm: 6px;
+  --app-shadow: 0 1px 2px rgba(17, 24, 39, 0.04), 0 4px 16px rgba(17, 24, 39, 0.05);
+  --app-shadow-hover: 0 6px 24px rgba(79, 110, 247, 0.14);
+  --app-shadow-pop: 0 12px 32px rgba(17, 24, 39, 0.12);
+
+  --app-gap: 16px;
+  --app-gap-sm: 12px;
+  --app-gap-lg: 20px;
+
+  --app-sidebar-width: 220px;
+  --app-sidebar-collapsed: 64px;
+  --app-header-height: 56px;
+  --app-tabs-height: 40px;
+
+  // 状态色（标签、指标卡图标底）
+  --app-success: #16b26a;
+  --app-success-soft: #e7f8ef;
+  --app-warning: #f59f0b;
+  --app-warning-soft: #fef4e2;
+  --app-danger: #f04849;
+  --app-danger-soft: #fdeceb;
+  --app-info: #8a90a0;
+  --app-info-soft: #f1f2f5;
+  --app-purple: #8b5cf6;
+  --app-purple-soft: #f1ebfe;
+  --app-cyan: #0eb3c9;
+  --app-cyan-soft: #e3f7fa;
+
+  // 图表色板（ECharts 运行时读取）
+  --app-chart-1: #4f6ef7;
+  --app-chart-2: #16b26a;
+  --app-chart-3: #f59f0b;
+  --app-chart-4: #8b5cf6;
+  --app-chart-5: #0eb3c9;
+  --app-chart-6: #f04849;
+  --app-chart-grid: #eef0f5;
+  --app-chart-axis: #8a90a0;
+  --app-chart-pointer: rgba(127, 127, 127, 0.08);
+
+  // 遮罩（图片悬浮操作层、移动端菜单遮罩）
+  --app-mask: rgba(0, 0, 0, 0.45);
+
+  // 登录页插画
+  --app-login-bg: #f5f7fe;
+  --app-login-art-1: #6b8bff;
+  --app-login-art-2: #7c4dff;
+  --app-login-art-3: #38bdf8;
+  --app-login-art-mid: #5a63f0;
+  --app-login-card: #ffffff;
+  --app-login-soft-1: #c7d2fe;
+  --app-login-soft-2: #e0e7ff;
+  --app-login-soft-3: #ddd6fe;
+  --app-login-soft-4: #bae6fd;
+  --app-login-bar-1: #7c9bff;
+}
+
+html.dark {
+  --el-color-primary: #5b78f8;
+  --el-color-primary-light-3: #3d53b3;
+  --el-color-primary-light-5: #324185;
+  --el-color-primary-light-7: #262f58;
+  --el-color-primary-light-8: #202641;
+  --el-color-primary-light-9: #1a1d2b;
+  --el-color-primary-dark-2: #728bf9;
+  --el-bg-color: #161a23;
+  --el-bg-color-overlay: #1c212c;
+  --el-fill-color-blank: #161a23;
+
+  --app-primary-soft: rgba(91, 120, 248, 0.14);
+  --app-bg: #0e1117;
+  --app-card-bg: #161a23;
+  --app-card-bg-muted: #1b202b;
+  --app-border: #262b38;
+  --app-border-strong: #333a4a;
+
+  --app-text: #e6e8ee;
+  --app-text-regular: #b8bdc9;
+  --app-text-secondary: #868c9b;
+  --app-text-placeholder: #5d6372;
+
+  --app-sidebar-bg: #131720;
+  --app-sidebar-text: #a9afbd;
+  --app-sidebar-item-hover: #1c2130;
+  --app-sidebar-item-active: rgba(91, 120, 248, 0.16);
+  --app-sidebar-group: #5d6372;
+  --app-header-bg: rgba(22, 26, 35, 0.86);
+  --app-tabs-bg: #161a23;
+
+  --app-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+  --app-shadow-hover: 0 6px 24px rgba(0, 0, 0, 0.4);
+  --app-shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.5);
+
+  --app-success-soft: rgba(22, 178, 106, 0.15);
+  --app-warning-soft: rgba(245, 159, 11, 0.15);
+  --app-danger-soft: rgba(240, 72, 73, 0.15);
+  --app-info-soft: rgba(138, 144, 160, 0.15);
+  --app-purple-soft: rgba(139, 92, 246, 0.16);
+  --app-cyan-soft: rgba(14, 179, 201, 0.15);
+
+  --app-chart-grid: #262b38;
+  --app-chart-axis: #868c9b;
+
+  --app-login-bg: #0e1117;
+  --app-login-art-1: #3b4fc4;
+  --app-login-art-mid: #3a3fa8;
+  --app-login-art-2: #5b2fc0;
+}
+
+// ---- SCSS 别名（供组件样式使用） ----
+$primary: var(--el-color-primary);
+$radius: var(--app-radius);
+$radius-lg: var(--app-radius-lg);
+$shadow: var(--app-shadow);
+$gap: var(--app-gap);
+$text: var(--app-text);
+$text-secondary: var(--app-text-secondary);
+$border: var(--app-border);
+$card-bg: var(--app-card-bg);
+
+// 断点
+$bp-mobile: 768px;

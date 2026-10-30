@@ -1,0 +1,24 @@
+// 内容区切换：淡入 + 轻微位移
+.fade-slide-leave-active,
+.fade-slide-enter-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateX(-12px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateX(12px);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}

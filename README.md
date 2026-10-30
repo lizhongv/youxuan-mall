@@ -1,180 +1,120 @@
-# platform-cloud
+# 优选商城 platform-cloud
 
-> 现代化电商平台脚手架，对标主流电商技术栈：Spring Boot 3 / Spring Cloud Alibaba / RocketMQ / Elasticsearch / ShardingSphere / K8s。
->
-> 重构起源：[`platform/`](../platform) 老版微同商城（Spring Boot 2.7 + Vue 2）。本仓库从零搭建，业务模型参考老项目。
->
-> 重构计划详见 [`../platform/docs/重构分析与计划.md`](../platform/docs/重构分析与计划.md)。
+> 开箱即用的单店铺电商系统：移动商城 + 管理后台 + 服务端，一条命令部署到任意装有 Docker 的服务器。
 
----
+![Java](https://img.shields.io/badge/Java-17-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6db33f) ![Vue](https://img.shields.io/badge/Vue-3.5-42b883) ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479a1) ![Tests](https://img.shields.io/badge/单元测试-295%20通过-brightgreen) ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 
-## 当前阶段：Phase 0 + 进入 Phase 1
+| 移动商城 | | | 管理后台 |
+|---|---|---|---|
+| ![首页](docs/images/h5-home.jpg) | ![商品详情](docs/images/h5-goods.jpg) | ![我的](docs/images/h5-mine.jpg) | ![数据概览](docs/images/admin-dashboard.jpg) ![订单详情](docs/images/admin-order-detail.jpg) |
 
-| Phase | 状态 | 说明 |
+## 功能特性
+
+| 模块 | 买家（移动商城） | 商家（管理后台） |
 |---|---|---|
-| 0 · 准备 | 🟢 进行中 | monorepo 骨架 + Docker 依赖栈 + Flyway baseline |
-| 1 · 单体现代化 | ⬜ 待启动 | Spring Boot 3.3 + JDK 17 + Spring Security 6 |
-| 2 · 微服务化 | ⬜ | Nacos / Gateway / Sentinel / Seata / RocketMQ |
-| 3 · 数据架构 | ⬜ | ShardingSphere / Redis Cluster / ES / Canal |
-| 4 · 高并发场景 | ⬜ | 秒杀 / 库存 / 幂等 / JMeter / Arthas |
-| 5 · 可观测性 + DevOps | ⬜ | SkyWalking / Prometheus / ELK / K8s |
-| 6 · 前端 + 业务补全 | ⬜ | Vue3 + TS + Vite / qiankun |
-| 7 · 整理与延伸 | ⬜ | 文档站 / 选做 |
+| 商品 | 首页导购、类目、搜索排序、商品详情、多规格选择 | 两级类目、品牌、多规格 SKU 自动组合、富文本详情、批量上下架 |
+| 交易 | 购物车、结算（会员折扣 + 优惠券 + 运费自动计算）、余额支付、订单跟踪 | 订单筛选与状态统计、发货、改价、备注、取消、操作日志 |
+| 售后 | 仅退款 / 退货退款、上传凭证、填写退货物流 | 审核、确认收货退款，原路退回余额并回补库存 |
+| 评价 | 星级、图文、匿名评价，好评率与筛选 | 回复、显示隐藏 |
+| 营销 | 领券中心、限时秒杀倒计时 | 满减 / 折扣 / 无门槛券（按全场、类目、商品）、秒杀活动、轮播、公告 |
+| 会员 | 验证码 / 密码登录、地址、收藏、足迹、余额积分明细、等级 | 会员管理、调账、等级与折扣 |
+| 运营 | – | 数据概览（销售趋势、订单分布、热销 Top10）、系统参数（运费、超时时间、积分规则） |
+| 系统 | – | 管理员、角色与按钮级权限、菜单、字典、操作日志、登录日志、浅色 / 深色主题 |
 
----
+自动化：未支付订单超时关闭、发货后自动确认收货、优惠券过期处理，均为每分钟执行的分布式锁定时任务。
 
-## 目录结构
+## 快速开始
+
+**部署到服务器**（需要 Docker；开发机需要 JDK 17、Node 18+、Git Bash）：
+
+```bash
+bash deploy/mall/deploy.sh <ssh 主机>
+```
+
+脚本依次完成：单元测试 → 构建 → 打包 → 上传 → 启动 → 全链路冒烟测试。完成后访问：
+
+| 地址 | 说明 |
+|---|---|
+| `http://<主机>:8090/` | 移动商城（手机或浏览器打开） |
+| `http://<主机>:8090/console/` | 管理后台，初始账号 `admin` / `admin123`（登录后请立即修改） |
+| `http://<主机>:8090/doc.html` | 接口文档 |
+
+首次部署会自动生成随机数据库、Redis、JWT 密钥，并导入 8 个类目、37 个商品的演示数据。部署细节、运维命令与上线检查清单见 [deploy/mall/README.md](deploy/mall/README.md)。
+
+**本地开发**：
+
+```bash
+# 1. 准备 MySQL 8（建库 mall）与 Redis 7，连接信息用环境变量传入，表结构与演示数据由 Flyway 自动创建
+export MYSQL_HOST=127.0.0.1 MYSQL_USER=mall MYSQL_PASSWORD=*** REDIS_HOST=127.0.0.1 REDIS_PASSWORD=***
+./mvnw -pl mall-server -am package -DskipTests && java -jar mall-server/target/mall-server.jar   # 服务端 :8081
+
+# 2. 前端：默认代理到已部署环境；直连本地服务端加 VITE_PROXY_TARGET=http://localhost:8081 VITE_PROXY_DIRECT=1
+cd web/mall-admin && npm install && npm run dev   # 后台 http://localhost:5173/console/
+cd web/mall-h5 && npm install && npm run dev      # 商城 http://localhost:5174/
+```
+
+演示图片在 `deploy/mall/seed/uploads`，本地运行时复制到 `./data/uploads` 即可显示。
+
+## 工作原理
+
+```
+ 浏览器 ──▶ Nginx :8090 ──┬── /            移动商城静态文件
+                          ├── /console/    管理后台静态文件
+                          ├── /uploads/    图片（直接读磁盘）
+                          └── /api/ ──▶ mall-server :8081 ──▶ MySQL 8 / Redis 7
+```
+
+服务端是**模块化单体**：按领域分包，领域之间只通过 `*/api/*Api` 接口调用，不共享 Mapper。单机即可承载中小店铺，日后可按领域整体拆为微服务（`service/`、`infra/` 目录保留了 Nacos / Gateway / RocketMQ / ES 的拆分实验）。
+
+| 领域 | 职责 |
+|---|---|
+| system | 管理员、角色权限、菜单、字典、参数、日志、文件上传 |
+| member | 会员注册登录、资料、地址、收藏足迹、余额积分成长值 |
+| goods | 类目、品牌、商品 SPU/SKU、库存扣减、首页聚合 |
+| marketing | 优惠券、秒杀（Redis Lua 原子扣减）、轮播、公告 |
+| trade | 购物车、订单状态机、支付渠道、售后、评价、定时任务 |
+| stats | 后台数据概览 |
+
+关键设计：库存与余额用条件更新防超卖、超扣；下单与支付带幂等令牌；订单状态变更统一经状态机并记录日志；价格计算为纯函数并有完整单测。
+
+## 安全
+
+- 密码 BCrypt；JWT 密钥只从环境变量注入；后台登录失败 5 次锁定 15 分钟。
+- 管理端与商城端令牌按角色隔离；后台按钮级权限 `@PreAuthorize("@ss.has('...')")`。
+- 会员数据查询强制带当前用户 ID，防越权；手机号列表脱敏。
+- 上传文件校验扩展名白名单与大小，随机文件名，防目录穿越；SQL 全部参数化。
+- 演示开关：`MALL_SMS_DEV_MODE`（验证码回显）与 `MALL_PAY_MOCK_ENABLED`（模拟支付）**上线前必须关闭**，见部署文档检查清单。
+
+## 项目结构
 
 ```
 platform-cloud/
-├── pom.xml                          父 pom（版本锁定 BOM）
-├── docker-compose.yml               依赖栈（profiles: core / mq / search / observability）
-├── .env.example                     环境变量模板
-├── .gitignore / .editorconfig
-├── deploy/                          中间件配置
-│   ├── nacos/
-│   ├── prometheus/
-│   └── rocketmq/
-├── db/
-│   └── README.md                    Flyway 迁移说明
-├── docs/
-│   └── README.md                    架构图/ER 图占位
-└── bootstrap-app/                   Phase 1 单体应用
-    ├── pom.xml
-    └── src/
-        ├── main/java/com/platform/cloud/bootstrap/
-        │   ├── BootstrapApplication.java
-        │   ├── config/SecurityConfig.java
-        │   └── web/HealthController.java
-        ├── main/resources/
-        │   ├── application.yml
-        │   ├── application-dev.yml
-        │   └── db/migration/V1__init_baseline.sql
-        └── test/...
-
-# Phase 2 起加入：
-# infra/{gateway,auth-service}
-# domain/{user,goods,stock,cart,order,pay,promo,search}-service
-# bff/{admin-bff,shop-bff}
-# ops/job-service
+├── mall-server/          商城服务端（Spring Boot 3.3 + MyBatis-Plus + Flyway）
+├── web/mall-admin/       管理后台（Vue 3 + TypeScript + Element Plus + ECharts）
+├── web/mall-h5/          移动商城（Vue 3 + TypeScript + Vant 4）
+├── starter/              公共 starter：统一响应、异常、JWT、MyBatis、幂等、多级缓存
+├── deploy/mall/          Docker Compose 部署、Nginx 配置、发布脚本、演示图片
+├── scripts/              冒烟测试、演示图片生成
+├── docs/                 开发规范、接口契约、截图
+└── service/ infra/ bootstrap-app/   微服务演进实验（不参与商城部署）
 ```
 
----
+## 开发
 
-## 版本矩阵
+- 开发规范：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；接口契约：[docs/mall/api.md](docs/mall/api.md)（改接口先改契约）。
+- 测试：`./mvnw -pl mall-server -am test`（295 个单元测试）；部署后 `python scripts/smoke_test.py http://<主机>:8090`（11 项全链路检查）。
+- 表结构只通过 Flyway 迁移变更：`mall-server/src/main/resources/db/migration`。
 
-| 组件 | 版本 | 备注 |
-|---|---|---|
-| JDK | 17 | 你本机 OpenJDK 17.0.7 |
-| Spring Boot | 3.3.5 | 已升级到 jakarta.* 命名空间 |
-| Spring Cloud | 2023.0.3 (Leyton) | |
-| Spring Cloud Alibaba | 2023.0.3.2 | 兼容 SB 3.3.x |
-| MyBatis-Plus | 3.5.7 | 用 mybatis-plus-spring-boot3-starter |
-| Druid | 1.2.23 | druid-spring-boot-3-starter |
-| Flyway | 10.20.0 | 自动迁移 |
-| ShardingSphere-JDBC | 5.5.0 | Phase 3 用 |
-| Redisson | 3.36.0 | Phase 3 替换原 RedisLock |
-| RocketMQ Client | 5.x（spring-starter 2.3.1）| Phase 2 用 |
-| Elasticsearch | 8.15.3 | Phase 3 用 |
-| Knife4j | 4.5.0 | OpenAPI 3 / Jakarta |
-| JJWT | 0.12.6 | |
-| MapStruct | 1.6.3 | |
-| Lombok | 1.18.34 | |
-| Hutool | 5.8.32 | |
-| Testcontainers | 1.20.3 | 集成测试 |
+## 路线图
 
----
+- [ ] 接入微信支付 / 支付宝（`PayChannel` 已预留，回调路径已放行）
+- [ ] 接入阿里云 / 腾讯云短信（实现 `SmsSender` 即可替换）
+- [ ] 微信小程序端（复用 `/app/**` 接口）
+- [ ] 对象存储（实现 `FileStorage` 即可切换到 OSS / COS / MinIO）
+- [ ] 拼团、砍价、满减活动；运费模板
+- [ ] Elasticsearch 商品搜索（实验代码见 `service/goods-service`）
 
-## 快速上手
+## 贡献与许可
 
-### 1. 起本地依赖
-
-```bash
-# 复制环境变量
-cp .env.example .env
-
-# Phase 1 只需核心三件套（MySQL + Redis + Nacos）
-docker compose --profile core up -d
-
-# 检查
-docker compose ps
-```
-
-依赖端口对照：
-
-| 服务 | 端口 | 凭据 / 入口 |
-|---|---|---|
-| MySQL | 3306 | platform / platform123，库名 platform_cloud |
-| Redis | 6379 | password=platform123 |
-| Nacos | 8848 | http://localhost:8848/nacos （nacos/nacos，首次会强制改密）|
-| RocketMQ NameSrv | 9876 | （`--profile mq`） |
-| RocketMQ Dashboard | 18080 | http://localhost:18080 |
-| Elasticsearch | 9200 | （`--profile search`） |
-| Kibana | 5601 | http://localhost:5601 |
-| Prometheus | 9090 | http://localhost:9090 |
-| Grafana | 3000 | admin / platform123 |
-| SkyWalking UI | 8088 | http://localhost:8088 |
-
-### 2. 编译并启动 bootstrap-app
-
-```bash
-# 编译
-mvn -T 1C clean package -DskipTests
-
-# 启动
-java -jar bootstrap-app/target/bootstrap-app.jar
-
-# 或在 IDEA 里直接运行 BootstrapApplication.main()
-```
-
-### 3. 验证
-
-```bash
-# 健康探针（自定义）
-curl http://localhost:8080/api/ping
-
-# Spring Actuator
-curl http://localhost:8080/actuator/health
-
-# Prometheus 指标
-curl http://localhost:8080/actuator/prometheus
-
-# Knife4j API 文档
-# 浏览器打开 http://localhost:8080/doc.html
-```
-
-### 4. Flyway 迁移已自动执行
-
-启动后查看 MySQL 是否产生 `flyway_schema_history` 表 + `app_health_probe` 表：
-
-```sql
-USE platform_cloud;
-SELECT * FROM flyway_schema_history;
-SHOW TABLES;
-```
-
----
-
-## Phase 0 验收清单
-
-- [x] monorepo 目录骨架建好（`platform-cloud/` + `bootstrap-app/`）
-- [x] 父 pom 锁定 Spring Boot 3.3.5 / Cloud 2023.0.3 / Cloud Alibaba 2023.0.3.2 / JDK 17
-- [x] `docker-compose.yml` 含 4 个 profile（core / mq / search / observability）
-- [x] Flyway baseline 脚本就位（`V1__init_baseline.sql`）
-- [x] bootstrap-app 含 Spring Security 6 + Actuator + Prometheus + Knife4j 依赖
-- [x] 烟雾测试：`BootstrapApplicationTests#contextLoads`
-- [ ] **本地实跑**：`docker compose --profile core up -d` + `mvn package` + 访问 `/api/ping`
-- [ ] 用 DBeaver 或类似工具从 `platform/_sql/mall.sql` 导出 ER 图至 `docs/er.png`
-
-> 完成最后两项后即可 commit Phase 0，并进入 Phase 1。
-
----
-
-## 下一步（Phase 1 预告）
-
-1. 接入 **logback-spring.xml**：JSON 输出 + 全链路 traceId（MDC）
-2. 加全局异常处理器 + 统一响应封装 `RestResponse<T>`
-3. 加 `@Idempotent` 注解 + Redis 实现幂等
-4. **Spring Security 6 + JWT** 实战：登录接口、JwtAuthenticationFilter、白名单
-5. **接入 Testcontainers**：跑 MySQL/Redis 真实集成测试
-6. 把老项目的 **商品域**（Goods/SKU/Category/Brand）按现代风格迁移到 bootstrap-app
+提交前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+本项目基于 Apache License 2.0 发布；业务模型参考自 [微同商城 platform-wxshop](../platform)。主要第三方依赖：Spring Boot、MyBatis-Plus、Knife4j、Hutool（Apache 2.0），Vue、Element Plus、Vant、ECharts、wangEditor（MIT / Apache 2.0）。

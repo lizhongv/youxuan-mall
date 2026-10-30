@@ -1,0 +1,103 @@
+// Element Plus 细节覆盖：统一圆角、表头、对话框观感
+.el-button {
+  font-weight: 500;
+}
+
+.el-card {
+  border-radius: var(--app-radius-lg);
+  border-color: var(--app-border);
+}
+
+.el-table {
+  --el-table-header-bg-color: var(--app-card-bg-muted);
+  --el-table-header-text-color: var(--app-text-regular);
+  --el-table-row-hover-bg-color: var(--app-primary-soft);
+  --el-table-border-color: var(--app-border);
+  border-radius: var(--app-radius);
+  font-size: 13px;
+
+  th.el-table__cell {
+    font-weight: 600;
+    height: 44px;
+  }
+  .cell {
+    line-height: 1.5;
+  }
+}
+
+.el-dialog {
+  border-radius: var(--app-radius-lg);
+  padding: 0;
+  overflow: hidden;
+
+  .el-dialog__header {
+    padding: 16px 20px;
+    margin: 0;
+    border-bottom: 1px solid var(--app-border);
+  }
+  .el-dialog__title {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .el-dialog__headerbtn {
+    top: 4px;
+  }
+  .el-dialog__body {
+    padding: 20px 24px 8px;
+  }
+  .el-dialog__footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--app-border);
+  }
+}
+
+.el-drawer {
+  .el-drawer__header {
+    margin-bottom: 0;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--app-border);
+    color: var(--app-text);
+    font-weight: 600;
+  }
+  .el-drawer__body {
+    padding: 20px;
+  }
+  .el-drawer__footer {
+    border-top: 1px solid var(--app-border);
+    padding: 12px 20px;
+  }
+}
+
+.el-tabs--card > .el-tabs__header {
+  border-bottom-color: var(--app-border);
+}
+
+.el-message-box {
+  border-radius: var(--app-radius-lg);
+}
+
+.el-tag {
+  border-radius: var(--app-radius-sm);
+}
+
+.el-pagination {
+  --el-pagination-border-radius: var(--app-radius-sm);
+}
+
+.el-image__error,
+.el-image__placeholder {
+  font-size: 12px;
+  background: var(--app-card-bg-muted);
+  color: var(--app-text-placeholder);
+}
+
+// 对话框在小屏下自适应宽度
+@media (max-width: 768px) {
+  .el-dialog {
+    width: calc(100vw - 24px) !important;
+    margin-top: 6vh !important;
+  }
+  .el-drawer.rtl {
+    width: 100vw !important;
+  }
+}

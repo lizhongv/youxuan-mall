@@ -1,0 +1,59 @@
+// 设计变量：值来自 theme.ts 写入的 CSS 变量，这里只做 SCSS 别名，方便页面引用。
+$primary: var(--mall-primary);
+$primary-end: var(--mall-primary-end);
+$primary-light: var(--mall-primary-light);
+$gradient: var(--mall-gradient);
+$orange: var(--mall-orange);
+$orange-gradient: var(--mall-orange-gradient);
+$gold: var(--mall-gold);
+$success: var(--mall-success);
+$warning: var(--mall-warning);
+$blue: var(--mall-blue);
+$text: var(--mall-text);
+$text-2: var(--mall-text-2);
+$text-3: var(--mall-text-3);
+$border: var(--mall-border);
+$border-strong: var(--mall-border-strong);
+$disabled: var(--mall-disabled);
+$bg: var(--mall-bg);
+$card: var(--mall-card);
+$white: var(--mall-card);
+$radius-sm: var(--mall-radius-sm);
+$radius: var(--mall-radius);
+$radius-lg: var(--mall-radius-lg);
+
+$page-max: 480px;
+$gap: 12px;
+$tabbar-h: 50px;
+$safe-bottom: env(safe-area-inset-bottom);
+
+@mixin ellipsis($lines: 1) {
+  overflow: hidden;
+  @if $lines == 1 {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  } @else {
+    display: -webkit-box;
+    -webkit-line-clamp: $lines;
+    -webkit-box-orient: vertical;
+    word-break: break-all;
+  }
+}
+
+@mixin card {
+  background: $card;
+  border-radius: $radius;
+}
+
+// 底部固定栏：限制在 480px 内容区并适配安全区
+@mixin fixed-bottom {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: $page-max;
+  z-index: 100;
+  background: $card;
+  padding-bottom: $safe-bottom;
+}
