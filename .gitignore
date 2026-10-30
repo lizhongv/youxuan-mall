@@ -42,3 +42,10 @@ order.log
 gateway.log
 *-err.log
 bootstrap.pid
+
+# 前端
+node_modules/
+*.tsbuildinfo
+
+# 商城运行数据
+mall-server/data/

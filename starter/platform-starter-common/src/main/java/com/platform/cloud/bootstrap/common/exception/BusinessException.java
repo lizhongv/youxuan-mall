@@ -16,6 +16,12 @@ public class BusinessException extends RuntimeException {
 
     private final int code;
 
+    /** 最常用：业务规则不满足，直接给用户看的提示，如「库存不足」 */
+    public BusinessException(String msg) {
+        super(msg);
+        this.code = ResultCode.BUSINESS_ERROR.getCode();
+    }
+
     public BusinessException(ResultCode rc) {
         super(rc.getMsg());
         this.code = rc.getCode();

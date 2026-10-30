@@ -26,6 +26,8 @@
         <module>service/goods-service</module>
         <module>service/order-service</module>
         <module>bootstrap-app</module>
+        <!-- 商城主产品：模块化单体，可独立部署 -->
+        <module>mall-server</module>
         <!-- Phase 2 真正拆服务后还会加：
         <module>infra/gateway</module>
         <module>service/user-service</module>
