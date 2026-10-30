@@ -88,6 +88,9 @@ mall:
   upload:
     dir: ${MALL_UPLOAD_DIR:./data/uploads}
     url-prefix: ${MALL_UPLOAD_URL_PREFIX:/uploads}
+  pay:
+    # 模拟支付（立即成功），演示与冒烟测试用；接入真实支付渠道后生产环境务必设为 false
+    mock-enabled: ${MALL_PAY_MOCK_ENABLED:true}
 
 logging:
   level:
