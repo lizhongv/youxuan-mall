@@ -7,6 +7,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.cloud.bootstrap.common.exception.BusinessException;
 import com.platform.cloud.bootstrap.common.web.PageVO;
 import com.platform.cloud.mall.goods.api.GoodsApi;
+import com.platform.cloud.mall.marketing.api.CouponApi;
+import com.platform.cloud.mall.marketing.api.SeckillApi;
 import com.platform.cloud.mall.member.api.MemberApi;
 import com.platform.cloud.mall.member.api.MemberApi.MemberBrief;
 import com.platform.cloud.mall.trade.aftersale.dto.AftersaleApplyRequest;
@@ -29,6 +31,7 @@ import com.platform.cloud.mall.trade.order.mapper.OrderItemMapper;
 import com.platform.cloud.mall.trade.order.mapper.OrderMapper;
 import com.platform.cloud.mall.trade.order.service.OrderAssembler;
 import com.platform.cloud.mall.trade.order.service.OrderStateMachine;
+import com.platform.cloud.mall.trade.order.service.impl.OrderServiceImpl;
 import com.platform.cloud.mall.trade.pay.service.PayService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -53,7 +56,10 @@ import java.util.stream.Collectors;
  *   <li>退款额度：申请金额 ≤ 明细 payAmount − 已退款金额，退款执行时再复核一次，防止并发超退。</li>
  *   <li>同一明细同时只能有一个进行中的售后：用明细 aftersale_status 的条件更新（≠ APPLYING 才能改成 APPLYING）做互斥。</li>
  *   <li>售后状态变更全部是 {@code WHERE status = <原状态>} 的条件更新，重复点击「同意」不会退两次款。</li>
- *   <li>未发货订单仅退款时须全额退该商品，退款后回补库存；全部明细退完则订单取消（不退券）。</li>
+ *   <li>未发货订单仅退款时须全额退该商品，退款后回补库存；全部明细退完则订单取消，
+ *       并与取消订单规则一致：额外退还运费、退还优惠券（已过期置 EXPIRED）、归还秒杀名额。</li>
+ *   <li>确认收货后再退款：按「退款额 / 发放基数」比例回收已发放的积分与成长值（扣到 0 为止，不降级）。</li>
+ *   <li>售后申请与发货都先 SELECT ... FOR UPDATE 锁订单行，二者串行。</li>
  * </ul>
  */
 @Service
@@ -61,6 +67,10 @@ import java.util.stream.Collectors;
 public class AftersaleServiceImpl implements AftersaleService {
 
     private static final int NO_RETRY = 3;
+    /** mbr_account_log.biz_type：退款回收订单奖励 */
+    static final String BIZ_REWARD_REVOKE = "ORDER_REWARD_REVOKE";
+    /** 运费退款单号后缀：渠道按退款单号幂等，运费与商品退款需不同单号 */
+    static final String FREIGHT_REFUND_SUFFIX = "F";
 
     private final AftersaleMapper aftersaleMapper;
     private final OrderMapper orderMapper;
@@ -70,6 +80,8 @@ public class AftersaleServiceImpl implements AftersaleService {
     private final GoodsApi goodsApi;
     private final MemberApi memberApi;
     private final TradeSettings settings;
+    private final CouponApi couponApi;
+    private final SeckillApi seckillApi;
 
     // ------------------------------------------------------------------ 会员
 
@@ -82,10 +94,10 @@ public class AftersaleServiceImpl implements AftersaleService {
         if (item == null) {
             throw new BusinessException("订单商品不存在");
         }
-        Order order = orderMapper.selectOne(Wrappers.<Order>lambdaQuery()
-                .eq(Order::getId, item.getOrderId())
-                .eq(Order::getMemberId, memberId));
-        if (order == null) {
+        // 锁订单行后再判断状态：发货同样先锁订单行，保证「申请售后」与「发货」串行，
+        // 不会出现发货检查通过后售后才落库、货照发钱照退的情况
+        Order order = orderMapper.selectByIdForUpdate(item.getOrderId());
+        if (order == null || !java.util.Objects.equals(order.getMemberId(), memberId)) {
             throw new BusinessException("订单不存在");
         }
         AftersaleType type = AftersaleType.valueOf(req.getType());
@@ -256,7 +268,8 @@ public class AftersaleServiceImpl implements AftersaleService {
 
     /**
      * 执行退款：复核额度 → 原路退款 → 售后单 REFUNDED → 明细 REFUNDED；
-     * 未发货订单回补库存，且全部明细退完时订单取消（优惠券不退，已按实付分摊退给买家）。
+     * 未发货订单回补库存，且全部明细退完时订单取消（见 {@link #cancelAfterFullRefund}）；
+     * 已完成订单按比例回收确认收货时发放的积分与成长值。
      */
     void refund(Aftersale a, String operator, Consumer<LambdaUpdateWrapper<Aftersale>> extra) {
         Order order = orderMapper.selectById(a.getOrderId());
@@ -286,12 +299,75 @@ public class AftersaleServiceImpl implements AftersaleService {
                     .eq(OrderItem::getOrderId, order.getId())
                     .ne(OrderItem::getAftersaleStatus, OrderItem.AS_REFUNDED));
             if (notRefunded == 0) {
-                String reason = "全部商品已退款";
-                orderStateMachine.transit(order, OrderStatus.CANCELLED, operator, reason,
-                        w -> w.set(Order::getCancelTime, now).set(Order::getCancelReason, reason));
-                payService.markRefunded(order.getId());
+                cancelAfterFullRefund(order, a, operator, now);
             }
+        } else if (OrderStatus.COMPLETED.name().equals(order.getStatus())) {
+            reclaimReward(order, a);
         }
+    }
+
+    /**
+     * 未发货订单全部明细退完 → 订单取消，规则与买家取消订单一致：
+     * 运费没有分摊进明细，需单独原路退还，否则买家什么都没收到却付了运费；
+     * 优惠券退还（CouponApi.giveBack 内已处理「已过期则置 EXPIRED」）；秒杀名额在本事务内归还。
+     * 库存已在逐条退款时回补，这里不再回补。
+     */
+    void cancelAfterFullRefund(Order order, Aftersale a, String operator, LocalDateTime now) {
+        String reason = "全部商品已退款";
+        orderStateMachine.transit(order, OrderStatus.CANCELLED, operator, reason,
+                w -> w.set(Order::getCancelTime, now).set(Order::getCancelReason, reason));
+        BigDecimal freight = Money.scale(order.getFreightAmount());
+        if (freight.signum() > 0) {
+            payService.refund(order, freight, a.getAftersaleNo() + FREIGHT_REFUND_SUFFIX);
+            orderStateMachine.log(order.getId(), OrderStatus.CANCELLED.name(), OrderStatus.CANCELLED.name(),
+                    operator, "整单退款，退还运费 " + freight + " 元");
+        }
+        payService.markRefunded(order.getId());
+        if (order.getMemberCouponId() != null) {
+            couponApi.giveBack(order.getMemberCouponId());
+        }
+        List<OrderItem> items = orderItemMapper.selectList(Wrappers.<OrderItem>lambdaQuery()
+                .eq(OrderItem::getOrderId, order.getId()));
+        OrderServiceImpl.releaseSeckill(order, items, seckillApi);
+    }
+
+    /**
+     * 确认收货后退款：按「本次退款 / 发放基数」比例回收积分与成长值，向下取整
+     * （多次部分退款的回收总和不会超过当初发放的数量）。会员积分不足时扣到 0 并在流水注明；等级不降。
+     * 升级前完成的历史订单没有记录发放数量，按当前「每元奖励」配置折算。
+     */
+    void reclaimReward(Order order, Aftersale a) {
+        BigDecimal refund = Money.nz(a.getAmount());
+        if (refund.signum() <= 0) {
+            return;
+        }
+        int points;
+        int growth;
+        BigDecimal base = order.getRewardBase();
+        if (base != null && order.getRewardPoints() != null && order.getRewardGrowth() != null) {
+            if (base.signum() <= 0) {
+                return;
+            }
+            BigDecimal ratio = refund.min(base);
+            points = proportional(order.getRewardPoints(), ratio, base);
+            growth = proportional(order.getRewardGrowth(), ratio, base);
+        } else {
+            points = OrderServiceImpl.rewardOf(refund, settings.pointsPerYuan());
+            growth = OrderServiceImpl.rewardOf(refund, settings.growthPerYuan());
+        }
+        if (points > 0 || growth > 0) {
+            memberApi.reclaimReward(order.getMemberId(), points, growth, BIZ_REWARD_REVOKE, a.getAftersaleNo(),
+                    "订单 " + order.getOrderNo() + " 退款扣回奖励");
+        }
+    }
+
+    /** granted × part / base，向下取整 */
+    static int proportional(int granted, BigDecimal part, BigDecimal base) {
+        if (granted <= 0) {
+            return 0;
+        }
+        return BigDecimal.valueOf(granted).multiply(part)
+                .divide(base, 0, java.math.RoundingMode.DOWN).intValueExact();
     }
 
     /** 售后状态的条件更新：从读取时的状态改到目标状态，影响 0 行说明已被并发处理 */

@@ -131,12 +131,30 @@ public class PayServiceImpl implements PayService {
                 .set(Payment::getStatus, Payment.REFUNDED));
     }
 
+    /**
+     * 落账：订单 PENDING_PAY → PENDING_DELIVERY。
+     * 条件里带 {@code pay_amount = 支付单金额}：读取订单到这里之间后台可能刚改了价，
+     * 若仍按旧金额落账就成了「少付也发货」。条件不满足时抛业务异常，整个事务（含余额扣款）回滚。
+     */
     private void markPaid(Order order, Payment payment, String channelNo, String operator, LocalDateTime now) {
         String channel = payment.getChannel();
-        stateMachine.transit(order, OrderStatus.PENDING_DELIVERY, operator, "支付成功（" + channel + "）",
-                w -> w.set(Order::getPayType, channel)
-                        .set(Order::getPayTime, now)
-                        .set(Order::getPayNo, payment.getPayNo()));
+        try {
+            stateMachine.transit(order, OrderStatus.PENDING_DELIVERY, operator, "支付成功（" + channel + "）",
+                    w -> w.eq(Order::getPayAmount, payment.getAmount())
+                            .set(Order::getPayType, channel)
+                            .set(Order::getPayTime, now)
+                            .set(Order::getPayNo, payment.getPayNo()));
+        } catch (BusinessException e) {
+            Order latest = orderMapper.selectById(order.getId());
+            if (latest != null && OrderStatus.PENDING_PAY.name().equals(latest.getStatus())
+                    && latest.getPayAmount() != null && payment.getAmount() != null
+                    && latest.getPayAmount().compareTo(payment.getAmount()) != 0) {
+                log.warn("支付时订单金额已变化 orderId={} 支付单金额={} 当前应付={}", order.getId(),
+                        payment.getAmount(), latest.getPayAmount());
+                throw new BusinessException("订单金额已变化，请刷新后重试");
+            }
+            throw e;
+        }
         paymentMapper.update(null, Wrappers.<Payment>lambdaUpdate()
                 .eq(Payment::getId, payment.getId())
                 .eq(Payment::getStatus, Payment.WAITING)

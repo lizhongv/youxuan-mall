@@ -76,7 +76,7 @@ public class MemberAccountServiceImpl implements MemberAccountService {
     @Transactional(rollbackFor = Exception.class)
     public void addGrowth(Long memberId, int delta, String bizType, String bizNo, String remark) {
         if (delta <= 0) {
-            // 成长值只增不减；退款等场景不回收成长值，与主流电商一致
+            // 本方法只负责增加；退款回收走 reclaimReward（扣到 0 为止、不降级）
             return;
         }
         if (memberMapper.addGrowth(memberId, delta) == 0) {
@@ -86,6 +86,39 @@ public class MemberAccountServiceImpl implements MemberAccountService {
         writeLog(memberId, AccountType.GROWTH, BigDecimal.valueOf(delta), BigDecimal.valueOf(m.getGrowth()),
                 bizType, bizNo, remark);
         upgradeIfNeeded(m);
+    }
+
+    /**
+     * 先 SELECT ... FOR UPDATE 锁住会员行读出当前积分 / 成长值，按 min(计划, 当前) 扣减，
+     * 这样「扣到 0」与写流水的 change / after 值在并发下也一致。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reclaimReward(Long memberId, int points, int growth, String bizType, String bizNo, String remark) {
+        if (points <= 0 && growth <= 0) {
+            return;
+        }
+        MbrMember m = memberMapper.selectAccountForUpdate(memberId);
+        if (m == null) {
+            throw new BusinessException("会员不存在");
+        }
+        int curPoints = m.getPoints() == null ? 0 : m.getPoints();
+        int curGrowth = m.getGrowth() == null ? 0 : m.getGrowth();
+        int p = Math.min(Math.max(points, 0), curPoints);
+        int g = Math.min(Math.max(growth, 0), curGrowth);
+        if (p == 0 && g == 0) {
+            log.info("会员 {} 积分 / 成长值已为 0，无需回收 bizNo={}", memberId, bizNo);
+            return;
+        }
+        memberMapper.deductReward(memberId, p, g);
+        if (p > 0) {
+            writeLog(memberId, AccountType.POINTS, BigDecimal.valueOf(-p), BigDecimal.valueOf(curPoints - p),
+                    bizType, bizNo, p < points ? remark + "（积分不足，按剩余 " + p + " 扣回）" : remark);
+        }
+        if (g > 0) {
+            writeLog(memberId, AccountType.GROWTH, BigDecimal.valueOf(-g), BigDecimal.valueOf(curGrowth - g),
+                    bizType, bizNo, remark);
+        }
     }
 
     @Override

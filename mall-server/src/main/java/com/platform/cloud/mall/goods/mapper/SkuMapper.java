@@ -26,6 +26,14 @@ public interface SkuMapper extends BaseMapper<Sku> {
             + "version = version + 1 WHERE id = #{id}")
     int restoreStock(@Param("id") Long id, @Param("quantity") int quantity);
 
+    /**
+     * 后台编辑商品时的差量调整库存：stock + delta 不得为负（编辑期间被下单买走时，减库存可能不够减）。
+     * 不改销量；version + 1 与扣减保持一致。
+     */
+    @Update("UPDATE gds_sku SET stock = stock + #{delta}, version = version + 1 "
+            + "WHERE id = #{id} AND deleted = 0 AND stock + #{delta} >= 0")
+    int adjustStock(@Param("id") Long id, @Param("delta") int delta);
+
     /** 查 SKU 所属商品，包含已逻辑删除的 SKU（Wrapper 查询会自动带 deleted = 0，回补场景不适用） */
     @Select("SELECT goods_id FROM gds_sku WHERE id = #{id}")
     Long selectGoodsIdIncludingDeleted(@Param("id") Long id);

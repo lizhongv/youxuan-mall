@@ -9,16 +9,21 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -62,14 +67,14 @@ class SeckillApiImplTest {
     void notStarted() {
         LocalDateTime now = LocalDateTime.now();
         when(seckillMapper.selectById(ID)).thenReturn(activity(now.plusHours(1), now.plusHours(2)));
-        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1)).hasMessage("秒杀活动尚未开始");
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1, 0)).hasMessage("秒杀活动尚未开始");
     }
 
     @Test
     void ended() {
         LocalDateTime now = LocalDateTime.now();
         when(seckillMapper.selectById(ID)).thenReturn(activity(now.minusHours(2), now.minusHours(1)));
-        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1)).hasMessage("秒杀活动已结束");
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1, 0)).hasMessage("秒杀活动已结束");
     }
 
     @Test
@@ -77,12 +82,12 @@ class SeckillApiImplTest {
         Seckill s = ongoing();
         s.setStatus(0);
         when(seckillMapper.selectById(ID)).thenReturn(s);
-        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1)).hasMessage("秒杀活动已停止");
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1, 0)).hasMessage("秒杀活动已停止");
     }
 
     @Test
     void notExists() {
-        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1)).hasMessage("秒杀活动不存在");
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1, 0)).hasMessage("秒杀活动不存在");
     }
 
     @Test
@@ -90,19 +95,19 @@ class SeckillApiImplTest {
         Seckill s = ongoing();
         s.setSold(10);
         when(seckillMapper.selectById(ID)).thenReturn(s);
-        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1)).hasMessageContaining("已抢光");
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1, 0)).hasMessageContaining("已抢光");
         verify(stockCache, never()).tryAcquire(anyLong(), anyLong(), anyInt(), anyInt());
     }
 
     @Test
     void singleRequestOverLimit() {
         when(seckillMapper.selectById(ID)).thenReturn(ongoing());
-        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 3)).hasMessage("每人限购 2 件");
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 3, 0)).hasMessage("每人限购 2 件");
     }
 
     @Test
     void invalidQuantity() {
-        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 0)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 0, 0)).isInstanceOf(BusinessException.class);
     }
 
     @Test
@@ -110,7 +115,7 @@ class SeckillApiImplTest {
         when(seckillMapper.selectById(ID)).thenReturn(ongoing());
         when(stockCache.tryAcquire(ID, MEMBER, 1, 2)).thenReturn(9L);
         when(seckillMapper.increaseSold(ID, 1)).thenReturn(1);
-        assertThatCode(() -> api.acquire(ID, MEMBER, 1)).doesNotThrowAnyException();
+        assertThatCode(() -> api.acquire(ID, MEMBER, 1, 0)).doesNotThrowAnyException();
     }
 
     @Test
@@ -118,7 +123,7 @@ class SeckillApiImplTest {
         when(seckillMapper.selectById(ID)).thenReturn(ongoing());
         when(stockCache.tryAcquire(ID, MEMBER, 1, 2)).thenReturn(SeckillStockCache.NOT_WARMED, 9L);
         when(seckillMapper.increaseSold(ID, 1)).thenReturn(1);
-        api.acquire(ID, MEMBER, 1);
+        api.acquire(ID, MEMBER, 1, 0);
         verify(stockCache).warmIfAbsent(anyLong(), anyInt(), any());
     }
 
@@ -126,7 +131,7 @@ class SeckillApiImplTest {
     void redisSoldOut() {
         when(seckillMapper.selectById(ID)).thenReturn(ongoing());
         when(stockCache.tryAcquire(ID, MEMBER, 1, 2)).thenReturn(SeckillStockCache.SOLD_OUT);
-        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1)).hasMessageContaining("已抢光");
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1, 0)).hasMessageContaining("已抢光");
         verify(seckillMapper, never()).increaseSold(anyLong(), anyInt());
     }
 
@@ -134,14 +139,91 @@ class SeckillApiImplTest {
     void redisInsufficient() {
         when(seckillMapper.selectById(ID)).thenReturn(ongoing());
         when(stockCache.tryAcquire(ID, MEMBER, 2, 2)).thenReturn(SeckillStockCache.INSUFFICIENT);
-        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 2)).hasMessage("秒杀剩余数量不足");
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 2, 0)).hasMessage("秒杀剩余数量不足");
     }
 
     @Test
     void redisOverPersonalLimit() {
         when(seckillMapper.selectById(ID)).thenReturn(ongoing());
         when(stockCache.tryAcquire(ID, MEMBER, 1, 2)).thenReturn(SeckillStockCache.OVER_LIMIT);
-        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1)).hasMessageContaining("每人限购 2 件");
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 1, 0)).hasMessageContaining("每人限购 2 件");
+    }
+
+    @Test
+    void 订单已购数兜底个人限购_Redis计数丢失也挡住() {
+        when(seckillMapper.selectById(ID)).thenReturn(ongoing());
+        // Redis 个人 Hash 丢失时 Lua 会放行，这里以订单统计的已购 1 件为准：1 + 2 > 2
+        assertThatThrownBy(() -> api.acquire(ID, MEMBER, 2, 1)).hasMessageContaining("每人限购 2 件");
+        verify(stockCache, never()).tryAcquire(anyLong(), anyLong(), anyInt(), anyInt());
+        verify(seckillMapper, never()).increaseSold(anyLong(), anyInt());
+    }
+
+    @Test
+    void 下单事务回滚时Redis名额恰好补回一次_DB的sold随事务回滚() {
+        when(seckillMapper.selectById(ID)).thenReturn(ongoing());
+        when(stockCache.tryAcquire(ID, MEMBER, 1, 2)).thenReturn(9L);
+        when(seckillMapper.increaseSold(ID, 1)).thenReturn(1);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            api.acquire(ID, MEMBER, 1, 0);
+            List<TransactionSynchronization> syncs = TransactionSynchronizationManager.getSynchronizations();
+            assertThat(syncs).hasSize(1);
+            syncs.forEach(s -> s.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        verify(stockCache, times(1)).release(ID, MEMBER, 1);
+        // 回滚补偿不再对数据库做 decreaseSold（sold 由事务回滚撤销）
+        verify(seckillMapper, never()).decreaseSold(anyLong(), anyInt());
+    }
+
+    @Test
+    void 下单事务提交时不归还名额() {
+        when(seckillMapper.selectById(ID)).thenReturn(ongoing());
+        when(stockCache.tryAcquire(ID, MEMBER, 1, 2)).thenReturn(9L);
+        when(seckillMapper.increaseSold(ID, 1)).thenReturn(1);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            api.acquire(ID, MEMBER, 1, 0);
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(s -> s.afterCompletion(TransactionSynchronization.STATUS_COMMITTED));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        verify(stockCache, never()).release(anyLong(), anyLong(), anyInt());
+    }
+
+    @Test
+    void 取消事务内归还_DB立即扣sold_Redis等提交后才加回() {
+        when(seckillMapper.decreaseSold(ID, 2)).thenReturn(1);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            api.release(ID, MEMBER, 2);
+            verify(seckillMapper).decreaseSold(ID, 2);
+            verify(stockCache, never()).release(anyLong(), anyLong(), anyInt());
+            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        verify(stockCache, times(1)).release(ID, MEMBER, 2);
+    }
+
+    @Test
+    void 取消事务回滚时Redis不加回() {
+        when(seckillMapper.decreaseSold(ID, 2)).thenReturn(1);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            api.release(ID, MEMBER, 2);
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(s -> s.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        verify(stockCache, never()).release(anyLong(), anyLong(), anyInt());
     }
 
     @Test

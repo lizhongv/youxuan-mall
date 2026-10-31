@@ -7,11 +7,11 @@ import java.util.Map;
 
 /**
  * 交易领域给统计领域（stats）提供的只读查询。
- * stats 不直接访问 trd_ 表，统计口径集中在交易领域维护：「已支付」= pay_time 非空，按支付时间归属日期。
+ * stats 不直接访问 trd_ 表，统计口径集中在交易领域维护：「已支付」= pay_time 非空且未因全额退款取消，按支付时间归属日期，金额扣除已退款。
  */
 public interface TradeStatsService {
 
-    /** [from, to) 内支付的订单销售额与订单数 */
+    /** [from, to) 内支付的订单销售额（实付 − 已退款）与订单数，不含支付后整单退款取消的订单 */
     SalesStat paidBetween(LocalDateTime from, LocalDateTime to);
 
     /** [from, to) 内按支付日期分组；没有订单的日期不返回，由调用方补 0 */

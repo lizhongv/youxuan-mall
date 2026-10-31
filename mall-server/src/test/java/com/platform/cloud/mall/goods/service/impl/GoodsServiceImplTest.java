@@ -9,6 +9,7 @@ import com.platform.cloud.mall.goods.entity.Sku;
 import com.platform.cloud.mall.goods.entity.SpecItem;
 import com.platform.cloud.mall.goods.mapper.SkuMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +26,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -73,22 +77,31 @@ class GoodsServiceImplTest {
         return f;
     }
 
+    @SuppressWarnings("unchecked")
+    private static ArgumentCaptor<LambdaUpdateWrapper<Sku>> skuWrapper() {
+        return ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void syncUpdatesInsertsAndDeletes() {
         when(skuMapper.selectList(any())).thenReturn(List.of(existing(1L, "红"), existing(2L, "蓝")));
-        when(skuMapper.updateById(any(Sku.class))).thenReturn(1);
+        when(skuMapper.update(isNull(), any())).thenReturn(1);
+        when(skuMapper.adjustStock(anyLong(), anyInt())).thenReturn(1);
+        SkuForm red = form(1L, "红", "88.888", 20);
+        red.setOriginStock(5);
 
-        service.syncSkus(GOODS_ID, List.of(form(1L, "红", "88.888", 20), form(null, "绿", "99", 7)), SPECS);
+        service.syncSkus(GOODS_ID, List.of(red, form(null, "绿", "99", 7)), SPECS);
 
-        ArgumentCaptor<Sku> updated = ArgumentCaptor.forClass(Sku.class);
-        verify(skuMapper).updateById(updated.capture());
-        assertThat(updated.getValue().getId()).isEqualTo(1L);
-        assertThat(updated.getValue().getPrice()).isEqualByComparingTo("88.89");
-        assertThat(updated.getValue().getStock()).isEqualTo(20);
-        // 销量是业务累计值，编辑商品不能改
-        assertThat(updated.getValue().getSales()).isEqualTo(3);
-        assertThat(updated.getValue().getSpecText()).isEqualTo("颜色:红");
+        ArgumentCaptor<LambdaUpdateWrapper<Sku>> w = skuWrapper();
+        verify(skuMapper).update(isNull(), w.capture());
+        // 已有 SKU 只写表单字段：不写库存、不写销量
+        assertThat(w.getValue().getSqlSet()).contains("price", "spec_text", "weight")
+                .doesNotContain("stock").doesNotContain("sales");
+        assertThat(w.getValue().getParamNameValuePairs().values()).contains(new BigDecimal("88.89"), "颜色:红");
+        // 目标 20 − 打开时 5 = +15，按差量条件更新
+        verify(skuMapper).adjustStock(1L, 15);
+        verify(skuMapper, never()).updateById(any(Sku.class));
 
         ArgumentCaptor<Sku> inserted = ArgumentCaptor.forClass(Sku.class);
         verify(skuMapper).insert(inserted.capture());
@@ -109,17 +122,59 @@ class GoodsServiceImplTest {
     }
 
     @Test
-    void versionConflict() {
+    void 编辑期间被下单买走_减库存后小于0则失败() {
         when(skuMapper.selectList(any())).thenReturn(List.of(existing(1L, "红")));
-        when(skuMapper.updateById(any(Sku.class))).thenReturn(0);
+        when(skuMapper.update(isNull(), any())).thenReturn(1);
+        when(skuMapper.adjustStock(1L, -5)).thenReturn(0);
+        SkuForm f = form(1L, "红", "1", 0);
+        f.setOriginStock(5);
+        assertThatThrownBy(() -> service.syncSkus(GOODS_ID, List.of(f), SPECS))
+                .hasMessageContaining("请刷新后重试");
+    }
+
+    @Test
+    void 库存未改动或旧前端未传原库存时不调整库存() {
+        when(skuMapper.selectList(any())).thenReturn(List.of(existing(1L, "红"), existing(2L, "蓝")));
+        when(skuMapper.update(isNull(), any())).thenReturn(1);
+        SkuForm same = form(1L, "红", "1", 5);
+        same.setOriginStock(5);
+        SkuForm legacy = form(2L, "蓝", "1", 999);
+
+        service.syncSkus(GOODS_ID, List.of(same, legacy), SPECS);
+
+        verify(skuMapper, never()).adjustStock(anyLong(), anyInt());
+    }
+
+    @Test
+    void 差量计算() {
+        SkuForm f = form(1L, "红", "1", 8);
+        assertThat(GoodsServiceImpl.stockDelta(f)).isZero();
+        f.setOriginStock(10);
+        assertThat(GoodsServiceImpl.stockDelta(f)).isEqualTo(-2);
+    }
+
+    @Test
+    void SKU已被删除时失败() {
+        when(skuMapper.selectList(any())).thenReturn(List.of(existing(1L, "红")));
+        when(skuMapper.update(isNull(), any())).thenReturn(0);
         assertThatThrownBy(() -> service.syncSkus(GOODS_ID, List.of(form(1L, "红", "1", 1)), SPECS))
                 .hasMessageContaining("请刷新后重试");
     }
 
     @Test
+    void 商品表单字段不含库存与销量() {
+        Goods g = new Goods();
+        g.setName("x");
+        g.setFreightTemplateId(7L);
+        String set = GoodsServiceImpl.formFields(g).getSqlSet();
+        assertThat(set).contains("freight_template_id", "name", "price")
+                .doesNotContain("stock").doesNotContainPattern("(^|,)sales=");
+    }
+
+    @Test
     void nothingRemovedWhenAllKept() {
         when(skuMapper.selectList(any())).thenReturn(List.of(existing(1L, "红")));
-        when(skuMapper.updateById(any(Sku.class))).thenReturn(1);
+        when(skuMapper.update(isNull(), any())).thenReturn(1);
         service.syncSkus(GOODS_ID, List.of(form(1L, "红", "1", 1)), SPECS);
         verify(skuMapper, never()).deleteBatchIds(any());
     }

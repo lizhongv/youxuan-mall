@@ -67,6 +67,18 @@ public class SeckillStockCache {
             return 1
             """, Long.class);
 
+    /**
+     * 按差量调整剩余库存：键存在才 INCRBY，并刷新两个键的过期时间；返回 1 表示已调整，0 表示键不存在。
+     * 用差量而不是覆盖写，是为了不吞掉调整期间其他请求在 Redis 上的扣减 / 归还。
+     */
+    private static final RedisScript<Long> ADJUST = new DefaultRedisScript<>("""
+            if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+            redis.call('INCRBY', KEYS[1], tonumber(ARGV[1]))
+            redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2]))
+            if redis.call('EXISTS', KEYS[2]) == 1 then redis.call('PEXPIRE', KEYS[2], tonumber(ARGV[2])) end
+            return 1
+            """, Long.class);
+
     private final StringRedisTemplate redis;
 
     /** 原子抢占名额，返回剩余库存或错误码 */
@@ -88,6 +100,17 @@ public class SeckillStockCache {
         Duration ttl = ttl(endAt);
         redis.opsForValue().set(STOCK_KEY + seckillId, String.valueOf(Math.max(remaining, 0)), ttl);
         redis.expire(BOUGHT_KEY + seckillId, ttl);
+    }
+
+    /**
+     * 管理端修改活动库存后按差量同步（delta = 新活动库存 − 旧活动库存）。
+     *
+     * @return false 表示键不存在（未预热 / 已过期），调用方应以数据库最新值 {@link #warmIfAbsent} 补齐
+     */
+    public boolean adjust(Long seckillId, int delta, LocalDateTime endAt) {
+        Long r = redis.execute(ADJUST, List.of(STOCK_KEY + seckillId, BOUGHT_KEY + seckillId),
+                String.valueOf(delta), String.valueOf(ttl(endAt).toMillis()));
+        return r != null && r == 1L;
     }
 
     /** 懒加载预热：键不存在时才写，避免覆盖并发中其他请求的扣减 */

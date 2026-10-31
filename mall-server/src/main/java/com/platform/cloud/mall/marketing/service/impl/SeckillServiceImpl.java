@@ -1,6 +1,7 @@
 package com.platform.cloud.mall.marketing.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.cloud.bootstrap.common.exception.BusinessException;
 import com.platform.cloud.bootstrap.common.web.PageVO;
@@ -92,11 +93,43 @@ public class SeckillServiceImpl implements SeckillService {
             throw new BusinessException("活动库存不能小于已抢数量 " + sold);
         }
         validate(id, req, sold);
+        int oldStock = s.getStock() == null ? 0 : s.getStock();
         apply(s, req);
-        if (seckillMapper.updateById(s) == 0) {
+        // 只写业务字段，不写 sold：读取之后到这里可能有人刚抢到 / 刚取消，整行 updateById 会把旧 sold 写回去。
+        // version 条件挡住两个管理员并发编辑；sold <= 新库存 在数据库侧再兜一次（抢购可能在校验后发生）
+        int rows = seckillMapper.update(null, new LambdaUpdateWrapper<Seckill>()
+                .eq(Seckill::getId, id)
+                .eq(Seckill::getVersion, s.getVersion())
+                .le(Seckill::getSold, req.getStock())
+                .set(Seckill::getTitle, s.getTitle())
+                .set(Seckill::getGoodsId, s.getGoodsId())
+                .set(Seckill::getSkuId, s.getSkuId())
+                .set(Seckill::getSeckillPrice, s.getSeckillPrice())
+                .set(Seckill::getStock, s.getStock())
+                .set(Seckill::getLimitPerMember, s.getLimitPerMember())
+                .set(Seckill::getStartAt, s.getStartAt())
+                .set(Seckill::getEndAt, s.getEndAt())
+                .set(Seckill::getStatus, s.getStatus())
+                .set(Seckill::getVersion, (s.getVersion() == null ? 0 : s.getVersion()) + 1));
+        if (rows == 0) {
             throw new BusinessException("数据已被修改，请刷新后重试");
         }
-        warmAfterCommit(s);
+        syncCacheAfterCommit(id, s.getStock() - oldStock, s.getEndAt());
+    }
+
+    /**
+     * 修改后同步 Redis：按库存差量调整而不是用读取时的旧 sold 覆盖写，避免吞掉并发中的抢购扣减；
+     * 键不存在时以提交后数据库的最新 sold 懒加载。
+     */
+    private void syncCacheAfterCommit(Long id, int delta, LocalDateTime endAt) {
+        TxCallbacks.afterCommit(() -> {
+            if (!stockCache.adjust(id, delta, endAt)) {
+                Seckill fresh = seckillMapper.selectById(id);
+                if (fresh != null) {
+                    stockCache.warmIfAbsent(id, remaining(fresh), fresh.getEndAt());
+                }
+            }
+        });
     }
 
     @Override
@@ -143,12 +176,16 @@ public class SeckillServiceImpl implements SeckillService {
         return toVO(s, snapshots(List.of(s)).get(s.getSkuId()), now);
     }
 
+    /**
+     * 启动预热只补缺失的键：多实例滚动发布时其他实例仍在售卖，覆盖写会用刚读出的 sold 吞掉
+     * 已在 Redis 扣减但尚未提交的名额。
+     */
     @Override
     public int warmUpAll() {
         List<Seckill> list = seckillMapper.selectList(new LambdaQueryWrapper<Seckill>()
                 .gt(Seckill::getEndAt, LocalDateTime.now()));
         for (Seckill s : list) {
-            stockCache.warm(s.getId(), remaining(s), s.getEndAt());
+            stockCache.warmIfAbsent(s.getId(), remaining(s), s.getEndAt());
         }
         return list.size();
     }

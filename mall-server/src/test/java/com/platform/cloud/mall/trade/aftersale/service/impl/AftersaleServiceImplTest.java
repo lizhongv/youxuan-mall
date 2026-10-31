@@ -1,6 +1,8 @@
 package com.platform.cloud.mall.trade.aftersale.service.impl;
 
 import com.platform.cloud.mall.goods.api.GoodsApi;
+import com.platform.cloud.mall.marketing.api.CouponApi;
+import com.platform.cloud.mall.marketing.api.SeckillApi;
 import com.platform.cloud.mall.member.api.MemberApi;
 import com.platform.cloud.mall.trade.MpTestSupport;
 import com.platform.cloud.mall.trade.aftersale.dto.AftersaleApplyRequest;
@@ -66,6 +68,10 @@ class AftersaleServiceImplTest {
     MemberApi memberApi;
     @Mock
     TradeSettings settings;
+    @Mock
+    CouponApi couponApi;
+    @Mock
+    SeckillApi seckillApi;
     @InjectMocks
     AftersaleServiceImpl service;
 
@@ -96,7 +102,7 @@ class AftersaleServiceImplTest {
         return i;
     }
 
-    private void orderIs(OrderStatus status, LocalDateTime receiveTime) {
+    private Order orderIs(OrderStatus status, LocalDateTime receiveTime) {
         Order o = new Order();
         o.setId(ORDER_ID);
         o.setOrderNo("20261031120000123456");
@@ -104,8 +110,13 @@ class AftersaleServiceImplTest {
         o.setStatus(status.name());
         o.setPayType("BALANCE");
         o.setReceiveTime(receiveTime);
+        o.setOrderType("NORMAL");
+        o.setPayAmount(new BigDecimal("110.00"));
+        o.setFreightAmount(BigDecimal.ZERO);
         when(orderMapper.selectOne(any())).thenReturn(o);
         when(orderMapper.selectById(ORDER_ID)).thenReturn(o);
+        when(orderMapper.selectByIdForUpdate(ORDER_ID)).thenReturn(o);
+        return o;
     }
 
     private static AftersaleApplyRequest apply(String type, String amount) {
@@ -207,6 +218,25 @@ class AftersaleServiceImplTest {
     }
 
     @Test
+    void 申请售后先锁订单行_与发货串行() {
+        orderIs(OrderStatus.PENDING_DELIVERY, null);
+
+        service.apply(MEMBER, apply("REFUND", "50.00"));
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(orderMapper, orderItemMapper);
+        inOrder.verify(orderMapper).selectByIdForUpdate(ORDER_ID);
+        inOrder.verify(orderItemMapper).update(isNull(), any());
+    }
+
+    @Test
+    void 锁到的订单不属于当前会员视为不存在() {
+        Order o = orderIs(OrderStatus.DELIVERED, null);
+        o.setMemberId(999L);
+        assertThatThrownBy(() -> service.apply(MEMBER, apply("REFUND", "10"))).hasMessage("订单不存在");
+        verify(aftersaleMapper, never()).insert(any(Aftersale.class));
+    }
+
+    @Test
     void 他人订单明细视为不存在() {
         when(orderItemMapper.selectOne(any())).thenReturn(null);
         assertThatThrownBy(() -> service.apply(MEMBER, apply("REFUND", "10"))).hasMessage("订单商品不存在");
@@ -227,6 +257,101 @@ class AftersaleServiceImplTest {
         verify(orderStateMachine).transit(any(Order.class), eq(OrderStatus.CANCELLED), eq("admin:9"), anyString(),
                 any());
         verify(payService).markRefunded(ORDER_ID);
+    }
+
+    @Test
+    void 未发货整单退完_额外退运费_退券_归还秒杀名额() {
+        Order o = orderIs(OrderStatus.PENDING_DELIVERY, null);
+        o.setFreightAmount(new BigDecimal("10.00"));
+        o.setMemberCouponId(88L);
+        o.setOrderType("SECKILL");
+        o.setSeckillId(77L);
+        aftersale("REFUND", "APPLYING", "50.00");
+        when(orderItemMapper.selectCount(any())).thenReturn(0L);
+        when(orderItemMapper.selectList(any())).thenReturn(java.util.List.of(item()));
+
+        service.approve(9L, AS_ID, "同意");
+
+        verify(payService).refund(any(Order.class), eq(new BigDecimal("50.00")), eq("A20261031120000000001"));
+        // 运费单独一笔，退款单号与商品退款区分（渠道按单号幂等）
+        verify(payService).refund(any(Order.class), eq(new BigDecimal("10.00")), eq("A20261031120000000001F"));
+        verify(couponApi).giveBack(88L);
+        verify(seckillApi).release(77L, MEMBER, 2);
+        verify(payService).markRefunded(ORDER_ID);
+        verify(orderStateMachine).log(eq(ORDER_ID), eq("CANCELLED"), eq("CANCELLED"), eq("admin:9"),
+                org.mockito.ArgumentMatchers.contains("运费 10.00"));
+    }
+
+    @Test
+    void 未发货整单退完_无运费无券时不额外退款() {
+        orderIs(OrderStatus.PENDING_DELIVERY, null);
+        aftersale("REFUND", "APPLYING", "50.00");
+        when(orderItemMapper.selectCount(any())).thenReturn(0L);
+
+        service.approve(9L, AS_ID, null);
+
+        verify(payService, org.mockito.Mockito.times(1)).refund(any(Order.class), any(), anyString());
+        verify(couponApi, never()).giveBack(anyLong());
+        verify(seckillApi, never()).release(anyLong(), anyLong(), anyInt());
+    }
+
+    @Test
+    void 部分退款不退运费不退券() {
+        Order o = orderIs(OrderStatus.PENDING_DELIVERY, null);
+        o.setFreightAmount(new BigDecimal("10.00"));
+        o.setMemberCouponId(88L);
+        aftersale("REFUND", "APPLYING", "50.00");
+        when(orderItemMapper.selectCount(any())).thenReturn(1L);
+
+        service.approve(9L, AS_ID, null);
+
+        verify(payService, org.mockito.Mockito.times(1)).refund(any(Order.class), any(), anyString());
+        verify(couponApi, never()).giveBack(anyLong());
+    }
+
+    @Test
+    void 确认收货后退款按比例回收积分与成长值() {
+        Order o = orderIs(OrderStatus.COMPLETED, LocalDateTime.now().minusDays(1));
+        o.setRewardBase(new BigDecimal("100.00"));
+        o.setRewardPoints(100);
+        o.setRewardGrowth(51);
+        aftersale("REFUND", "APPLYING", "30.00");
+
+        service.approve(9L, AS_ID, null);
+
+        // 100 × 30/100 = 30；51 × 0.3 = 15.3 → 15（向下取整，多次部分退款总和不超过发放量）
+        verify(memberApi).reclaimReward(eq(MEMBER), eq(30), eq(15), eq("ORDER_REWARD_REVOKE"),
+                eq("A20261031120000000001"), anyString());
+        verify(goodsApi, never()).restoreStock(anyLong(), anyInt());
+    }
+
+    @Test
+    void 历史订单无发放记录时按当前配置折算回收() {
+        orderIs(OrderStatus.COMPLETED, LocalDateTime.now().minusDays(1));
+        when(settings.pointsPerYuan()).thenReturn(BigDecimal.ONE);
+        when(settings.growthPerYuan()).thenReturn(new BigDecimal("0.5"));
+        aftersale("REFUND", "APPLYING", "30.99");
+
+        service.approve(9L, AS_ID, null);
+
+        verify(memberApi).reclaimReward(eq(MEMBER), eq(30), eq(15), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 未收货退款不回收奖励() {
+        orderIs(OrderStatus.DELIVERED, null);
+        aftersale("REFUND", "APPLYING", "20.00");
+
+        service.approve(9L, AS_ID, null);
+
+        verify(memberApi, never()).reclaimReward(anyLong(), anyInt(), anyInt(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 比例回收向下取整() {
+        assertThat(AftersaleServiceImpl.proportional(10, new BigDecimal("33.33"), new BigDecimal("100"))).isEqualTo(3);
+        assertThat(AftersaleServiceImpl.proportional(10, new BigDecimal("100"), new BigDecimal("100"))).isEqualTo(10);
+        assertThat(AftersaleServiceImpl.proportional(0, new BigDecimal("50"), new BigDecimal("100"))).isZero();
     }
 
     @Test

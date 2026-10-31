@@ -21,6 +21,8 @@ public class Order extends BaseEntity {
     private String orderNo;
     private Long memberId;
     private String orderType;
+    /** 秒杀活动 ID，普通订单为空；关单归还名额、个人限购统计都以它为准 */
+    private Long seckillId;
     private String status;
     private BigDecimal goodsAmount;
     private BigDecimal freightAmount;
@@ -50,4 +52,8 @@ public class Order extends BaseEntity {
     private String cancelReason;
     private Integer reviewed;
     private Integer memberDeleted;
+    /** 确认收货时实际发放的积分 / 成长值与计算基数，退款时按「退款额 / 基数」比例回收；未发放过为空 */
+    private Integer rewardPoints;
+    private Integer rewardGrowth;
+    private BigDecimal rewardBase;
 }

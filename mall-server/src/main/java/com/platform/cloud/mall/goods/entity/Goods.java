@@ -24,6 +24,9 @@ public class Goods extends BaseEntity {
     /** 品牌可清空，因此更新时 null 也要写入 */
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long brandId;
+    /** 运费模板；空表示用默认模板，可清空，因此更新时 null 也写入 */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private Long freightTemplateId;
     private String name;
     private String subtitle;
     private String pic;

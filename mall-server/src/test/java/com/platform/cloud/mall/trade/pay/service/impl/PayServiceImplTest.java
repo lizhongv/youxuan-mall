@@ -108,6 +108,29 @@ class PayServiceImplTest {
     }
 
     @Test
+    void 余额支付时订单已被改价_按金额条件落账失败并提示刷新() {
+        orderIs("PENDING_PAY", LocalDateTime.now().plusMinutes(10));
+        when(orderMapper.update(isNull(), any())).thenReturn(0);
+        Order changed = new Order();
+        changed.setId(ORDER_ID);
+        changed.setStatus("PENDING_PAY");
+        changed.setPayAmount(new BigDecimal("50.00"));
+        when(orderMapper.selectById(ORDER_ID)).thenReturn(changed);
+
+        // 抛异常 → 同一事务内的余额扣款一起回滚
+        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "BALANCE")).hasMessage("订单金额已变化，请刷新后重试");
+        verify(memberApi).changeBalance(eq(MEMBER), eq(new BigDecimal("-88.80")), anyString(), anyString(),
+                anyString());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Order>> w =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
+        verify(orderMapper).update(isNull(), w.capture());
+        assertThat(w.getValue().getSqlSegment()).contains("pay_amount").contains("status");
+        assertThat(w.getValue().getParamNameValuePairs().values()).contains(new BigDecimal("88.80"));
+    }
+
+    @Test
     void 超时订单不能支付() {
         orderIs("PENDING_PAY", LocalDateTime.now().minusSeconds(1));
         assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "MOCK")).hasMessageContaining("超时");

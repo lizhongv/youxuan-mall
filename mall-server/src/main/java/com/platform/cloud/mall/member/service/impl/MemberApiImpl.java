@@ -110,6 +110,11 @@ public class MemberApiImpl implements MemberApi {
     }
 
     @Override
+    public void reclaimReward(Long memberId, int points, int growth, String bizType, String bizNo, String remark) {
+        accountService.reclaimReward(memberId, points, growth, bizType, bizNo, remark);
+    }
+
+    @Override
     public boolean isFavorited(Long memberId, Long goodsId) {
         if (memberId == null || goodsId == null) {
             return false;
@@ -146,6 +151,19 @@ public class MemberApiImpl implements MemberApi {
                 .ge(from != null, MbrMember::getCreatedAt, from)
                 .lt(to != null, MbrMember::getCreatedAt, to));
         return n == null ? 0 : n;
+    }
+
+    @Override
+    public Map<String, Long> countRegisteredDaily(LocalDateTime from, LocalDateTime to) {
+        Map<String, Long> result = new java.util.LinkedHashMap<>();
+        for (Map<String, Object> row : memberMapper.countRegisteredDaily(from, to)) {
+            Object d = row.get("d");
+            Object c = row.get("c");
+            if (d != null && c instanceof Number n) {
+                result.put(d.toString(), n.longValue());
+            }
+        }
+        return result;
     }
 
     /** 只在新增足迹时检查，刷新已有足迹不会让数量变化 */

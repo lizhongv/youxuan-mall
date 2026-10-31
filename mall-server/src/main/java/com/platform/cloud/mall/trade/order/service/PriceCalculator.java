@@ -18,7 +18,9 @@ import java.util.List;
  *   <li>运费：按折后金额（会员折扣后、用券前）判断是否达到包邮门槛</li>
  *   <li>应付 = 商品 − 折扣 − 券 + 运费，最低 0.01</li>
  * </ol>
- * 优惠券按各行折后金额比例分摊到明细 payAmount，尾差计入最后一行；运费不分摊到明细（售后不退运费）。
+ * 优惠券按各行折后金额比例分摊到明细 payAmount，尾差计入最后一行；运费不分摊到明细
+ * （部分退款不退运费；未发货整单退完时由售后单独退还运费）。
+ * 启用运费模板后运费由 FreightCalculator 预先算好，经 {@link #calculateWithFreight} 传入。
  * 所有金额两位小数、HALF_UP。
  */
 public final class PriceCalculator {
@@ -69,6 +71,24 @@ public final class PriceCalculator {
             throw new IllegalArgumentException("计价行不能为空");
         }
         BigDecimal rate = normalizeDiscount(memberDiscount);
+        BigDecimal afterDiscount = BigDecimal.ZERO;
+        for (Line l : lines) {
+            afterDiscount = afterDiscount.add(discounted(l, rate));
+        }
+        return calculateWithFreight(lines, memberDiscount, couponAmount, freight(afterDiscount, freightRule));
+    }
+
+    /**
+     * 与 {@link #calculate} 相同，但运费由调用方预先算好（运费模板按地区、件数 / 重量计费）。
+     *
+     * @param freightAmount 已计算好的运费，null 视为 0
+     */
+    public static Result calculateWithFreight(List<Line> lines, BigDecimal memberDiscount, BigDecimal couponAmount,
+                                              BigDecimal freightAmount) {
+        if (lines == null || lines.isEmpty()) {
+            throw new IllegalArgumentException("计价行不能为空");
+        }
+        BigDecimal rate = normalizeDiscount(memberDiscount);
 
         BigDecimal goodsAmount = BigDecimal.ZERO;
         BigDecimal discountAmount = BigDecimal.ZERO;
@@ -88,7 +108,7 @@ public final class PriceCalculator {
         BigDecimal coupon = couponAmount == null ? BigDecimal.ZERO : scale(couponAmount.max(BigDecimal.ZERO));
         coupon = coupon.min(afterDiscount);
 
-        BigDecimal freight = freight(afterDiscount, freightRule);
+        BigDecimal freight = scale(freightAmount == null ? BigDecimal.ZERO : freightAmount.max(BigDecimal.ZERO));
 
         BigDecimal raw = afterDiscount.subtract(coupon).add(freight);
         BigDecimal payAmount = raw.max(MIN_PAY);

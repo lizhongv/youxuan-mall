@@ -17,6 +17,7 @@ import com.platform.cloud.mall.trade.order.mapper.OrderItemMapper;
 import com.platform.cloud.mall.trade.order.mapper.OrderLogMapper;
 import com.platform.cloud.mall.trade.order.mapper.OrderMapper;
 import com.platform.cloud.mall.trade.order.service.OrderStateMachine;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -139,19 +142,48 @@ class OrderServiceImplTest {
     }
 
     @Test
-    void 取消秒杀单归还名额_活动ID从下单日志解析() {
+    void 取消秒杀单归还名额_活动ID取订单列() {
         Order o = order("PENDING_PAY");
         o.setOrderType("SECKILL");
+        o.setSeckillId(77L);
         when(orderMapper.selectOne(any())).thenReturn(o);
         when(orderItemMapper.selectList(any())).thenReturn(List.of(item(1L, 11L, 2)));
-        OrderLog created = new OrderLog();
-        created.setRemark("提交秒杀订单 seckillId=77");
-        when(orderLogMapper.selectList(any())).thenReturn(List.of(created));
 
         service.memberCancel(MEMBER, ORDER_ID, null);
 
         verify(seckillApi).release(77L, MEMBER, 2);
         verify(goodsApi).restoreStock(11L, 2);
+    }
+
+    @Test
+    void 关单时秒杀名额在取消事务内直接归还_不延迟到提交后() {
+        Order o = order("PENDING_PAY");
+        o.setOrderType("SECKILL");
+        o.setSeckillId(77L);
+        when(orderMapper.selectById(ORDER_ID)).thenReturn(o);
+        when(orderItemMapper.selectList(any())).thenReturn(List.of(item(1L, 11L, 2)));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.closeExpired(ORDER_ID);
+            // 事务尚未提交时 release（扣 DB sold、登记 Redis afterCommit）已经执行；
+            // 订单服务自己不登记任何 afterCommit，否则 release 内部的 afterCommit 永远不会触发
+            verify(seckillApi).release(77L, MEMBER, 2);
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void 秒杀单缺少活动ID时不归还只记日志() {
+        Order o = order("PENDING_PAY");
+        o.setOrderType("SECKILL");
+        when(orderMapper.selectOne(any())).thenReturn(o);
+
+        service.memberCancel(MEMBER, ORDER_ID, null);
+
+        verify(seckillApi, never()).release(anyLong(), anyLong(), anyInt());
     }
 
     @Test
@@ -216,6 +248,16 @@ class OrderServiceImplTest {
         // 99.99 − 10 = 89.99 → 积分 89，成长值 89.99 × 0.5 = 44.995 → 44
         verify(memberApi).changePoints(eq(MEMBER), eq(89), eq("ORDER_REWARD"), anyString(), anyString());
         verify(memberApi).addGrowth(eq(MEMBER), eq(44), eq("ORDER_REWARD"), anyString(), anyString());
+        // 发放数量与基数同一条 UPDATE 记到订单上，供退款时按比例回收
+        ArgumentCaptor<LambdaUpdateWrapper<Order>> w = updateCaptor();
+        verify(orderMapper).update(isNull(), w.capture());
+        assertThat(w.getValue().getSqlSet()).contains("reward_points", "reward_growth", "reward_base");
+        assertThat(w.getValue().getParamNameValuePairs().values()).contains(89, 44, new BigDecimal("89.99"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ArgumentCaptor<LambdaUpdateWrapper<Order>> updateCaptor() {
+        return ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
     }
 
     @Test
@@ -237,7 +279,7 @@ class OrderServiceImplTest {
 
     @Test
     void 发货写入物流并设置自动收货时间() {
-        when(orderMapper.selectById(ORDER_ID)).thenReturn(order("PENDING_DELIVERY"));
+        when(orderMapper.selectByIdForUpdate(ORDER_ID)).thenReturn(order("PENDING_DELIVERY"));
         when(orderItemMapper.selectCount(any())).thenReturn(0L);
         OrderDeliverRequest req = new OrderDeliverRequest();
         req.setDeliveryCompany("顺丰");
@@ -249,11 +291,25 @@ class OrderServiceImplTest {
         verify(orderLogMapper).insert(log.capture());
         assertThat(log.getValue().getToStatus()).isEqualTo("DELIVERED");
         assertThat(log.getValue().getOperator()).isEqualTo("admin:9");
+        // 先锁订单行再检查售后，与售后申请串行
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(orderMapper, orderItemMapper);
+        inOrder.verify(orderMapper).selectByIdForUpdate(ORDER_ID);
+        inOrder.verify(orderItemMapper).selectCount(any());
+        verify(orderMapper, never()).selectById(any());
+    }
+
+    @Test
+    void 发货时订单不存在() {
+        when(orderMapper.selectByIdForUpdate(ORDER_ID)).thenReturn(null);
+        OrderDeliverRequest req = new OrderDeliverRequest();
+        req.setDeliveryCompany("顺丰");
+        req.setDeliveryNo("SF123");
+        assertThatThrownBy(() -> service.deliver(9L, ORDER_ID, req)).hasMessage("订单不存在");
     }
 
     @Test
     void 有处理中售后时不能发货() {
-        when(orderMapper.selectById(ORDER_ID)).thenReturn(order("PENDING_DELIVERY"));
+        when(orderMapper.selectByIdForUpdate(ORDER_ID)).thenReturn(order("PENDING_DELIVERY"));
         when(orderItemMapper.selectCount(any())).thenReturn(1L);
         OrderDeliverRequest req = new OrderDeliverRequest();
         req.setDeliveryCompany("顺丰");
@@ -268,6 +324,81 @@ class OrderServiceImplTest {
         assertThatThrownBy(() -> service.adjustPrice(9L, ORDER_ID, new BigDecimal("-99.99")))
                 .hasMessageContaining("0.01");
         verify(orderMapper, never()).update(isNull(), any());
+    }
+
+    @Test
+    void 改价下限为运费加每件0点01() {
+        Order o = order("PENDING_PAY");
+        o.setPayAmount(new BigDecimal("110.00"));
+        o.setFreightAmount(new BigDecimal("10.00"));
+        when(orderMapper.selectById(ORDER_ID)).thenReturn(o);
+        // 明细共 3 件 → 下限 10.03；改到 10.02 被拒
+        assertThatThrownBy(() -> service.adjustPrice(9L, ORDER_ID, new BigDecimal("-99.98")))
+                .hasMessageContaining("10.03");
+        verify(orderMapper, never()).update(isNull(), any());
+
+        // 恰好 10.03 可以，每件商品至少分到 0.01
+        service.adjustPrice(9L, ORDER_ID, new BigDecimal("-99.97"));
+        verify(orderMapper).update(isNull(), any());
+    }
+
+    @Test
+    void 改价重新分摊_每行预留每件0点01() {
+        Order o = order("PENDING_PAY");
+        o.setFreightAmount(new BigDecimal("10.00"));
+        OrderItem big = item(1L, 11L, 1);
+        big.setPayAmount(new BigDecimal("1000.00"));
+        OrderItem tiny = item(2L, 12L, 2);
+        tiny.setPayAmount(new BigDecimal("0.10"));
+
+        java.util.Map<Long, BigDecimal> r = OrderServiceImpl.allocateItems(o, List.of(big, tiny),
+                new BigDecimal("10.05"));
+
+        // 商品部分 0.05：先各预留 0.01 × 件数（0.01 + 0.02），剩 0.02 按比例几乎全给大额行
+        assertThat(r.get(2L)).isGreaterThanOrEqualTo(new BigDecimal("0.02"));
+        assertThat(r.get(1L).add(r.get(2L))).isEqualByComparingTo("0.05");
+    }
+
+    @Test
+    void 改价条件带读到的应付金额_并发改价或支付时失败() {
+        when(orderMapper.selectById(ORDER_ID)).thenReturn(order("PENDING_PAY"));
+        when(orderMapper.update(isNull(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.adjustPrice(9L, ORDER_ID, new BigDecimal("-9.99")))
+                .hasMessageContaining("已变化");
+        ArgumentCaptor<LambdaUpdateWrapper<Order>> w = updateCaptor();
+        verify(orderMapper).update(isNull(), w.capture());
+        assertThat(w.getValue().getSqlSegment()).contains("pay_amount");
+        assertThat(w.getValue().getParamNameValuePairs().values()).contains(new BigDecimal("99.99"));
+    }
+
+    @Test
+    void 自动收货查询排除售后中订单并按id游标分页() {
+        when(orderMapper.selectPage(any(), any())).thenReturn(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>());
+
+        service.findAutoReceivable(500L, 200);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Order>> w =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper.class);
+        verify(orderMapper).selectPage(any(), w.capture());
+        String sql = w.getValue().getCustomSqlSegment();
+        assertThat(sql).contains("NOT EXISTS").contains("aftersale_status = 'APPLYING'").contains("id >")
+                .contains("ORDER BY id ASC");
+        assertThat(w.getValue().getParamNameValuePairs().values()).contains(500L);
+    }
+
+    @Test
+    void 关单查询按id游标分页_首页不带游标() {
+        when(orderMapper.selectPage(any(), any())).thenReturn(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>());
+
+        service.findExpiredUnpaid(null, 200);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Order>> w =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper.class);
+        verify(orderMapper).selectPage(any(), w.capture());
+        assertThat(w.getValue().getCustomSqlSegment()).doesNotContain("id >").contains("ORDER BY id ASC");
     }
 
     @Test

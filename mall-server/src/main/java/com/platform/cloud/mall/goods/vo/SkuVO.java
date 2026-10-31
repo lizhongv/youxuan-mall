@@ -21,6 +21,9 @@ public class SkuVO {
     private String pic;
     private BigDecimal price;
     private BigDecimal originalPrice;
+    @Schema(description = "当前库存；编辑页需把它作为 originStock 原样回传")
     private Integer stock;
+    @Schema(description = "单件重量（kg）")
+    private BigDecimal weight;
     private Integer sales;
 }
