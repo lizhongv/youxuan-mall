@@ -56,9 +56,26 @@
 | 参数 `system/config` | `GET /list` 全部；`PUT /batch {items:[{configKey, configValue}]}` | `{id, configKey, configValue, name, remark}` |
 | 操作日志 `system/oper-log` | `GET /page`（`username, module, success, startTime, endTime`） | `{id, username, module, action, method, uri, params, ip, success, errorMsg, costMs, createdAt}` |
 | 登录日志 `system/login-log` | `GET /page`（`userType, username, success`） | `{id, userType, username, ip, userAgent, success, message, createdAt}` |
-| 上传 `system/file/upload` | POST multipart `file`, `bizType` | `{id, url, originalName, size}` |
+| 上传 `system/file/upload` | POST multipart `file`, `bizType` | `{id, url, originalName, size}`；对象存储模式下 `url` 为完整 CDN / 桶域名地址 |
+| 短信测试 `system/sms/test` | `POST {mobile}`，权限 `system:config:edit` | 用验证码模板发一条随机验证码（不可用于登录），返回 `{provider}`；失败时 `msg` 为渠道错误码，如 `阿里云短信发送失败：isv.SMS_SIGNATURE_ILLEGAL` |
+| 存储测试 `system/storage/test` | `POST`，权限 `system:config:edit` | 用已保存的配置上传并删除一个探测文件，返回 `{provider, sampleUrl, elapsedMs, message}`；本地存储直接返回「无需测试」 |
 
 操作日志：管理端所有 POST/PUT/DELETE 请求自动记录（切面实现，密码字段脱敏）。
+
+第三方基础设施参数（sys_config，后台「系统参数」修改后即时生效，无需重启；接入步骤见 [integration.md](integration.md)）：
+
+| 分组 | 键 | 说明 |
+|---|---|---|
+| 短信 | `sms.provider` | `LOG`（仅 `mall.sms.dev-mode=true` 时可用，生产选 LOG 发送会失败）/ `ALIYUN` / `TENCENT` |
+| | `sms.access_key_id`、`sms.access_key_secret`（敏感） | 阿里云 AccessKey 或腾讯云 SecretId / SecretKey |
+| | `sms.sign_name`、`sms.region`、`sms.tencent.sdk_app_id` | 签名；地域（腾讯云默认 ap-guangzhou）；腾讯云 SdkAppId |
+| | `sms.template.code` | 验证码模板（阿里云变量名 `code`；腾讯云只含 `{1}`） |
+| | `sms.template.pay_success` / `delivered` / `refund_success` | 通知模板，留空不发送 |
+| 存储 | `storage.provider` | `LOCAL` / `S3`（OSS、COS、MinIO、七牛 Kodo 均走 S3 协议），只影响新上传 |
+| | `storage.s3.endpoint`、`region`、`bucket`、`access_key`、`secret_key`（敏感）、`path_style` | S3 连接参数；OSS 必须 `path_style=false`，MinIO 一般为 `true` |
+| | `storage.public_base_url`、`storage.path_prefix` | 访问域名（CDN）与对象键前缀（默认 `mall`） |
+| 物流 | `logistics.provider` | `NONE` / `KUAIDI100` |
+| | `logistics.kuaidi100.customer`、`logistics.kuaidi100.key`（敏感） | 快递100 授权信息 |
 
 ### 1.3 会员（权限前缀 `member:`）
 
@@ -107,7 +124,8 @@
 | GET | `/admin/trade/order/page` | 筛选 `orderNo, receiverMobile, status, orderType, startTime, endTime` |
 | GET | `/admin/trade/order/{id}` | 详情：订单 + `items[]` + `logs[]` + `member{id,nickname,mobile}` |
 | GET | `/admin/trade/order/status-count` | `{PENDING_PAY: n, PENDING_DELIVERY: n, DELIVERED: n, COMPLETED: n, CANCELLED: n}` |
-| PUT | `/admin/trade/order/{id}/deliver` | `{deliveryCompany, deliveryNo}`，仅待发货 |
+| PUT | `/admin/trade/order/{id}/deliver` | `{deliveryCompany, deliveryNo}`，仅待发货；`deliveryCompany` 传字典 label（中文名）或 value（快递100 编码）均可 |
+| GET | `/admin/trade/order/{id}/logistics` | 物流轨迹，权限 `trade:order:view`，出参见下方「物流 VO」 |
 | PUT | `/admin/trade/order/{id}/price` | `{adjustAmount}` 改价，仅待支付，实付不得 < 0.01 |
 | PUT | `/admin/trade/order/{id}/remark` | `{adminRemark}` |
 | PUT | `/admin/trade/order/{id}/cancel` | `{reason}`，仅待支付 |
@@ -129,6 +147,18 @@
  items: [{id, goodsId, skuId, goodsName, pic, specText, price, quantity, totalAmount, payAmount, aftersaleStatus, reviewed}]}
 ```
 售后 VO：`{id, aftersaleNo, orderId, orderNo, orderItemId, memberId, memberNickname, type, status, statusText, reason, description, images[], amount, quantity, auditRemark, auditTime, returnCompany, returnNo, refundTime, createdAt, item: OrderItem}`
+物流 VO（管理端、商城端相同）：
+```
+{company: "shunfeng",            // 快递100 编码，无法识别时为空
+ companyName: "顺丰速运", trackingNo: "SF100…",
+ state: "SIGNED", stateText: "已签收",
+ traces: [{time: "2026-10-31 18:30:00", context: "已签收…", location: "上海市"}],   // 时间倒序
+ message: null}                  // 未开通 / 未发货 / 无结果 / 查询失败时的提示，此时 traces = []
+```
+`state` 取值：`NONE` 暂无物流信息、`COLLECTED` 已揽收、`IN_TRANSIT` 运输中、`DELIVERING` 派送中、`SIGNED` 已签收、`PROBLEM` 疑难件、`RETURN_SIGNED` 退件签收、`RETURNING` 退回中、`TRANSFERRED` 转投中、`CUSTOMS` 清关中、`REJECTED` 已拒签。
+`message` 取值：`未开通物流查询`、`订单尚未发货`、`暂不支持查询该快递公司的物流`、`暂无物流轨迹，快递公司可能尚未揽收，请稍后再查`、`物流信息暂时无法查询，请稍后再试`。物流查询失败不影响订单详情接口。
+结果缓存 Redis：在途 30 分钟、已签收 1 天、无结果 10 分钟；其他失败不缓存。
+
 评价 VO：`{id, orderId, goodsId, goodsName, goodsPic, memberId, nickname, avatar, specText, rating, content, images[], anonymous, reply, replyTime, status, createdAt}`
 
 ### 1.7 统计 `/admin/stats`（权限 `stats:view`）
@@ -215,6 +245,7 @@
 | POST | `/app/order` | 提交订单（需幂等头），入参 `OrderSubmit`，出参 `{orderId, orderNo, payAmount, payExpireAt}` |
 | GET | `/app/order/page?status=` | 我的订单；status 额外支持 `TO_REVIEW`（已完成未评价） |
 | GET | `/app/order/{id}` | 订单详情（同管理端订单 VO，另含 `logs[]`） |
+| GET | `/app/order/{id}/logistics` | 物流轨迹（只能查自己的订单），出参同管理端「物流 VO」 |
 | POST | `/app/order/{id}/pay` | `{payType: BALANCE\|MOCK}`（需幂等头），返回 `{paid: true}` |
 | PUT | `/app/order/{id}/cancel` | `{reason}`，仅待支付 |
 | PUT | `/app/order/{id}/receive` | 确认收货，仅待收货 |
@@ -310,7 +341,7 @@ APPLYING ─拒绝─▶ REJECTED        APPLYING / WAIT_RETURN ─买家撤销�
 
 上传接口 `/admin/system/file/upload` 只需登录。
 
-字典类型（种子数据）：`express_company` 快递公司（顺丰、中通、圆通、韵达、申通、京东、EMS、极兔）、`aftersale_reason` 售后原因（不想要了、商品与描述不符、质量问题、少件/漏发、发错货、其他）、`cancel_reason` 取消原因（不想买了、信息填写错误、重复下单、其他）。
+字典类型（种子数据）：`express_company` 快递公司（label 中文名，value 为快递100 编码：顺丰速运 `shunfeng`、中通快递 `zhongtong`、圆通速递 `yuantong`、韵达快递 `yunda`、申通快递 `shentong`、京东物流 `jd`、EMS `ems`、极兔速递 `jtexpress`；V7 起由 SF/ZTO… 改为快递100 编码，新增快递公司时 value 填快递100 编码（快递100 企业后台「快递公司编码」表）），详见 [integration.md](integration.md)。订单 `deliveryCompany` 历史上保存 label，查询物流时按 value → label → 旧编码依次匹配，旧订单无需迁移；`aftersale_reason` 售后原因（不想要了、商品与描述不符、质量问题、少件/漏发、发错货、其他）、`cancel_reason` 取消原因（不想买了、信息填写错误、重复下单、其他）。
 
 ---
 

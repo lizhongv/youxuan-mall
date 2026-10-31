@@ -2,6 +2,18 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [未发布]
+
+### 新增
+- 短信接入阿里云、腾讯云（后台 `sms.*` 参数切换，即时生效），后台「测试发送」，通知短信能力 `NotifySmsService`。
+- 对象存储：S3 协议兼容阿里云 OSS、腾讯云 COS、MinIO、七牛 Kodo（`storage.*`），后台「测试连接」；已有本地文件链接保持可用。
+- 物流轨迹：接入快递100 实时查询（`logistics.*`），商城端 `GET /app/order/{id}/logistics`、管理端 `GET /admin/trade/order/{id}/logistics`，Redis 缓存。
+- 接入文档 `docs/mall/integration.md`。
+
+### 变更
+- 快递公司字典 `express_company` 的 value 改为快递100 编码（label 不变），历史订单按中文名兼容。
+- 生产模式（`mall.sms.dev-mode=false`）下短信渠道为 LOG 时发送失败并记错误日志，不再静默丢弃。
+
 ## [1.0.0] - 2026-10-31
 
 首个可商用版本：移动商城 + 管理后台 + 服务端 + 一键部署。

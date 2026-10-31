@@ -14,6 +14,12 @@
     <name>mall-server</name>
     <description>商城服务端：模块化单体，按领域分包（system / member / goods / marketing / trade / stats）</description>
 
+    <properties>
+        <aliyun-dysmsapi.version>4.6.0</aliyun-dysmsapi.version>
+        <tencentcloud-sms.version>3.2.18</tencentcloud-sms.version>
+        <awssdk.version>2.57.8</awssdk.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.platform.cloud</groupId>
@@ -57,6 +63,63 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <scope>provided</scope>
+        </dependency>
+
+        <!-- ===== 第三方基础设施：短信 / 对象存储（物流查询直接用 JDK HttpClient，不引 SDK） ===== -->
+        <!-- 阿里云短信官方 SDK（dysmsapi 2017-05-25） -->
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>dysmsapi20170525</artifactId>
+            <version>${aliyun-dysmsapi.version}</version>
+            <exclusions>
+                <!-- tea-openapi 误把 jacoco agent 声明成 compile 依赖，不能打进生产包 -->
+                <exclusion>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>org.jacoco.agent</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- 腾讯云短信官方 SDK：只引 sms 产品包，不引全量 tencentcloud-sdk-java -->
+        <dependency>
+            <groupId>com.tencentcloudapi</groupId>
+            <artifactId>tencentcloud-sdk-java-sms</artifactId>
+            <version>${tencentcloud-sms.version}</version>
+            <exclusions>
+                <!-- Spring 的 spring-jcl 已提供同包名实现，保留原版会出现两份 org.apache.commons.logging -->
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!--
+            AWS S3 SDK v2：一套代码兼容 OSS / COS / MinIO / Kodo。
+            只用同步客户端，排除 netty（异步）与 apache-client，改用 JDK 自带 HttpURLConnection 的 url-connection-client，
+            避免 jar 体积和依赖冲突（netty 版本常与其他组件打架）。
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>${awssdk.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
+            <version>${awssdk.version}</version>
         </dependency>
 
         <dependency>
