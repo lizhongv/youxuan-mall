@@ -6,18 +6,26 @@ import { useReceiveCoupon } from '@/composables/useCoupon'
 import NavBar from '@/components/NavBar.vue'
 import CouponCard from '@/components/CouponCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import { errorMessage } from '@/api/request'
+import LoadState from '@/components/LoadState.vue'
 
 const list = ref<Coupon[]>([])
 const loading = ref(true)
+const loadError = ref('')
 const { receive, canReceive, statusText } = useReceiveCoupon()
 
-onMounted(async () => {
+async function load() {
+  loading.value = true
+  loadError.value = ''
   try {
     list.value = (await getAvailableCoupons()) || []
+  } catch (e) {
+    loadError.value = errorMessage(e)
   } finally {
     loading.value = false
   }
-})
+}
+onMounted(load)
 
 /** 已领进度（有发行量限制时显示） */
 function percent(c: Coupon) {
@@ -33,6 +41,7 @@ function percent(c: Coupon) {
       <div class="cc__desc">好券天天领 · 下单更优惠</div>
     </div>
     <van-loading v-if="loading" class="cc__loading" vertical>加载中...</van-loading>
+    <LoadState v-else-if="loadError" :error="loadError" @retry="load" />
     <EmptyState v-else-if="!list.length" description="暂无可领取的优惠券" />
     <div v-else class="cc__list">
       <CouponCard v-for="c in list" :key="c.id" :coupon="c" :disabled="!canReceive(c)" class="cc__item">

@@ -6,11 +6,15 @@ import type { AddressEditInfo } from 'vant'
 import { areaList } from '@vant/area-data'
 import type { AddressForm } from '@/types'
 import { createAddress, deleteAddress, getAddressList, updateAddress } from '@/api/member'
+import { useAppStore } from '@/stores/app'
 import NavBar from '@/components/NavBar.vue'
 
 const route = useRoute()
 const router = useRouter()
 const id = (route.query.id as string) || ''
+const app = useAppStore()
+/** 从确认订单页（地址选择列表）新增：保存后选中新地址并返回确认页 */
+const selectMode = route.query.select === '1'
 const info = ref<Partial<AddressEditInfo>>({})
 const loading = ref(!!id)
 const saving = ref(false)
@@ -70,10 +74,23 @@ async function onSave(content: AddressEditInfo) {
   }
   saving.value = true
   try {
-    if (id) await updateAddress(id, form)
-    else await createAddress(form)
+    if (id) {
+      await updateAddress(id, form)
+      showSuccessToast('保存成功')
+      router.back()
+      return
+    }
+    const newId = await createAddress(form)
     showSuccessToast('保存成功')
-    router.back()
+    if (selectMode && newId) {
+      app.selectedAddressId = String(newId)
+      // 跳过地址选择列表，直接回到确认订单页
+      const backPath = window.history.state?.back as string | undefined
+      if (backPath && backPath.startsWith('/address')) router.go(-2)
+      else router.back()
+    } else {
+      router.back()
+    }
   } catch {
     /* 已提示 */
   } finally {

@@ -7,6 +7,8 @@ import { deleteAddress, getAddressList, setDefaultAddress } from '@/api/member'
 import { useAppStore } from '@/stores/app'
 import NavBar from '@/components/NavBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import { errorMessage } from '@/api/request'
+import LoadState from '@/components/LoadState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,10 +19,15 @@ const currentId = (route.query.id as string) || ''
 
 const list = ref<Address[]>([])
 const loading = ref(true)
+const loadError = ref('')
 
 async function load() {
+  loading.value = true
+  loadError.value = ''
   try {
     list.value = (await getAddressList()) || []
+  } catch (e) {
+    loadError.value = errorMessage(e)
   } finally {
     loading.value = false
   }
@@ -57,7 +64,8 @@ async function remove(a: Address) {
 }
 
 function edit(a?: Address) {
-  router.push({ name: 'address-edit', query: a ? { id: a.id } : {} })
+  // 选择模式下新增地址：保存后直接选中并返回确认订单页
+  router.push({ name: 'address-edit', query: a ? { id: a.id } : selectMode ? { select: '1' } : {} })
 }
 </script>
 
@@ -65,6 +73,7 @@ function edit(a?: Address) {
   <div class="page addr">
     <NavBar :title="selectMode ? '选择收货地址' : '收货地址'" />
     <van-loading v-if="loading" class="addr__loading" vertical>加载中...</van-loading>
+    <LoadState v-else-if="loadError" :error="loadError" @retry="load" />
     <EmptyState v-else-if="!list.length" description="还没有收货地址" />
     <div v-else class="addr__list">
       <van-swipe-cell v-for="a in list" :key="a.id" class="addr__cell">

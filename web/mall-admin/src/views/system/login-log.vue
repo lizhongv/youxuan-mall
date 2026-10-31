@@ -97,7 +97,7 @@ function parseUA(ua = '') {
         <el-table-column label="时间" width="170">
           <template #default="{ row }: { row: any }"><span class="text-secondary">{{ formatTime(row.createdAt) }}</span></template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无登录日志" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无登录日志" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>

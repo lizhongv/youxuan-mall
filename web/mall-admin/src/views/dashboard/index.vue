@@ -259,7 +259,7 @@ const maxTop = computed(() => Math.max(1, ...topGoods.value.map((g) => g.amount 
                 <el-icon><CaretTop v-if="k.change > 0" /><CaretBottom v-else-if="k.change < 0" /><SemiSelect v-else /></el-icon>
                 {{ Math.abs(k.change).toFixed(1) }}%
               </span>
-              <span class="kpi__sub">较{{ k.sub }}</span>
+              <span v-if="k.change !== null" class="kpi__sub">较{{ k.sub }}</span>
             </template>
             <span v-else class="kpi__sub">{{ k.sub }}</span>
             <el-icon v-if="k.to" class="kpi__go"><ArrowRight /></el-icon>
@@ -320,7 +320,7 @@ const maxTop = computed(() => Math.max(1, ...topGoods.value.map((g) => g.amount 
             </div>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="近 30 天暂无销售" /></template>
+        <template #empty><EmptyState v-if="!loading.top" text="近 30 天暂无销售" /><div v-else class="table-placeholder" /></template>
       </el-table>
     </section>
   </div>

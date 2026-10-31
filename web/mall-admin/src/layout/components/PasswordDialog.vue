@@ -2,7 +2,6 @@
 import { reactive, ref } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { useRouter } from 'vue-router'
-import { authApi } from '@/api/auth'
 import { useUserStore } from '@/stores/user'
 import { toast } from '@/utils/message'
 
@@ -34,11 +33,15 @@ async function submit() {
   if (!(await formRef.value?.validate().catch(() => false))) return
   saving.value = true
   try {
-    await authApi.updatePassword({ oldPassword: form.oldPassword, newPassword: form.newPassword })
-    toast.success('密码已修改，请重新登录')
+    const kept = await user.changePassword({ oldPassword: form.oldPassword, newPassword: form.newPassword })
     visible.value = false
-    await user.logout(false)
-    router.replace('/login')
+    if (kept) {
+      toast.success('密码已修改，其他设备上的登录已失效')
+    } else {
+      toast.success('密码已修改，请重新登录')
+      await user.logout(false)
+      router.replace('/login')
+    }
   } finally {
     saving.value = false
   }

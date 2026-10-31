@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { fmtSpec, num } from '@/utils'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Seckill } from '@/types'
@@ -7,16 +8,22 @@ import NavBar from '@/components/NavBar.vue'
 import Price from '@/components/Price.vue'
 import CountDown from '@/components/CountDown.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import { errorMessage } from '@/api/request'
+import LoadState from '@/components/LoadState.vue'
 
 const router = useRouter()
 const list = ref<Seckill[]>([])
 const loading = ref(true)
+const loadError = ref('')
 const tab = ref<'ONGOING' | 'NOT_STARTED'>('ONGOING')
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     list.value = (await getSeckillList()) || []
+  } catch (e) {
+    loadError.value = errorMessage(e)
   } finally {
     loading.value = false
   }
@@ -24,6 +31,8 @@ async function load() {
 onMounted(load)
 
 const filtered = computed(() => list.value.filter((s) => s.state === tab.value))
+/** 划线原价：SeckillVO.price 为 SKU 当前售价 */
+const originOf = (s: Seckill) => s.price ?? s.originalPrice
 const percent = (s: Seckill) => (s.stock ? Math.min(100, Math.round((s.sold / s.stock) * 100)) : 100)
 </script>
 
@@ -39,7 +48,8 @@ const percent = (s: Seckill) => (s.stock ? Math.min(100, Math.round((s.sold / s.
       <van-tab title="即将开抢" name="NOT_STARTED" />
     </van-tabs>
 
-    <van-loading v-if="loading" class="seckill__loading" vertical>加载中...</van-loading>
+    <van-loading v-if="loading && !list.length" class="seckill__loading" vertical>加载中...</van-loading>
+    <LoadState v-else-if="loadError && !list.length" :error="loadError" @retry="load" />
     <EmptyState v-else-if="!filtered.length" description="暂无秒杀活动，稍后再来看看" />
     <div v-else class="seckill__list">
       <div
@@ -51,14 +61,17 @@ const percent = (s: Seckill) => (s.stock ? Math.min(100, Math.round((s.sold / s.
         <van-image :src="s.goodsPic" width="110" height="110" radius="8" fit="cover" lazy-load />
         <div class="sk-row__body">
           <div class="sk-row__name ellipsis-2">{{ s.goodsName }}</div>
-          <div v-if="s.specText" class="sk-row__spec ellipsis">{{ s.specText }}</div>
+          <div v-if="s.specText" class="sk-row__spec ellipsis">{{ fmtSpec(s.specText) }}</div>
           <div class="sk-row__time">
             {{ s.state === 'ONGOING' ? '距结束' : '距开始' }}
             <CountDown :end="s.state === 'ONGOING' ? s.endAt : s.startAt" @finish="load" />
           </div>
           <div class="sk-row__foot">
             <div>
-              <Price :value="s.seckillPrice" size="lg" />
+              <div class="sk-row__prices">
+                <Price :value="s.seckillPrice" size="lg" />
+                <Price v-if="num(originOf(s)) > num(s.seckillPrice)" :value="originOf(s)" strike />
+              </div>
               <div class="sk-row__progress">
                 <div class="sk-row__bar" :style="{ width: percent(s) + '%' }" />
               </div>
@@ -126,6 +139,11 @@ const percent = (s: Seckill) => (s.stock ? Math.min(100, Math.round((s.sold / s.
     margin-top: 6px;
     font-size: 12px;
     color: $text-2;
+  }
+  &__prices {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
   }
   &__foot {
     display: flex;

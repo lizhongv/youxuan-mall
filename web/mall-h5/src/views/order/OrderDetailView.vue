@@ -5,7 +5,9 @@ import type { Order, OrderItem } from '@/types'
 import { getOrder } from '@/api/order'
 import { ACTION_TEXT, canApplyAftersale, orderButtons, useOrderActions, type OrderAction } from '@/composables/useOrderActions'
 import { ORDER_STATUS_DESC, ORDER_STATUS_TEXT, ITEM_AFTERSALE_TEXT, PAY_TYPE_TEXT } from '@/utils/dict'
-import { copyText, fmtTime, money } from '@/utils'
+import { copyText, fmtSpec, fmtTime, money, num } from '@/utils'
+import { errorMessage } from '@/api/request'
+import LoadState from '@/components/LoadState.vue'
 import NavBar from '@/components/NavBar.vue'
 import Price from '@/components/Price.vue'
 import CountDown from '@/components/CountDown.vue'
@@ -17,13 +19,21 @@ const router = useRouter()
 const id = route.params.id as string
 const order = ref<Order | null>(null)
 const loading = ref(true)
+const loadError = ref('')
 
 async function load() {
+  loadError.value = ''
   try {
     order.value = await getOrder(id)
+  } catch (e) {
+    loadError.value = errorMessage(e)
   } finally {
     loading.value = false
   }
+}
+function retry() {
+  loading.value = true
+  load()
 }
 onMounted(load)
 
@@ -33,7 +43,7 @@ const { handle, doCancel } = useOrderActions((type) => {
   else load()
 })
 
-/** 详情页不显示「查看物流」（物流信息已在页面上） */
+/** 底部按钮；「查看物流」入口在物流卡片上，底栏不重复 */
 const buttons = computed(() => (order.value ? orderButtons(order.value).filter((b) => b !== 'logistics') : []))
 const statusText = computed(() => (order.value ? order.value.statusText || ORDER_STATUS_TEXT[order.value.status] : ''))
 const statusIcon = computed(() => {
@@ -75,8 +85,9 @@ function itemReview(item: OrderItem) {
 <template>
   <div class="page od">
     <NavBar title="订单详情" />
-    <van-loading v-if="loading" class="od__loading" vertical>加载中...</van-loading>
-    <EmptyState v-else-if="!order" description="订单不存在" />
+    <LoadState v-if="!order" :loading="loading" :error="loadError" :ready="false" @retry="retry">
+      <EmptyState description="订单不存在" />
+    </LoadState>
     <template v-else>
       <!-- 状态头 -->
       <div class="od__status">
@@ -98,16 +109,17 @@ function itemReview(item: OrderItem) {
       </div>
 
       <!-- 物流 -->
-      <div v-if="order.deliveryNo" class="card od__logistics">
+      <div v-if="order.deliveryNo" class="card od__logistics" @click="router.push({ name: 'logistics', params: { id: order.id } })">
         <van-icon name="logistics" class="od__ico" />
         <div class="od__logi-body">
           <div class="od__logi-title">{{ order.deliveryCompany || '快递' }}</div>
           <div class="od__logi-no">
             运单号：{{ order.deliveryNo }}
-            <span class="od__copy" @click="copyText(order.deliveryNo!)">复制</span>
+            <span class="od__copy" @click.stop="copyText(order.deliveryNo!)">复制</span>
           </div>
           <div v-if="order.deliveryTime" class="od__logi-time">发货时间 {{ fmtTime(order.deliveryTime) }}</div>
         </div>
+        <span class="od__logi-link">查看物流 <van-icon name="arrow" /></span>
       </div>
 
       <!-- 地址 -->
@@ -128,7 +140,7 @@ function itemReview(item: OrderItem) {
             <van-image :src="it.pic" width="80" height="80" radius="6" fit="cover" />
             <div class="od__item-body">
               <div class="od__item-name ellipsis-2">{{ it.goodsName }}</div>
-              <div v-if="it.specText" class="od__item-spec ellipsis">{{ it.specText }}</div>
+              <div v-if="it.specText" class="od__item-spec ellipsis">{{ fmtSpec(it.specText) }}</div>
             </div>
             <div class="od__item-right">
               <Price :value="it.price" size="xs" color="inherit" />
@@ -179,7 +191,7 @@ function itemReview(item: OrderItem) {
         <div v-if="Number(order.couponAmount) > 0" class="od__row">
           <span>优惠券</span><span class="text-primary">-¥{{ money(order.couponAmount) }}</span>
         </div>
-        <div v-if="order.adjustAmount && Number(order.adjustAmount) !== 0" class="od__row">
+        <div v-if="num(order.adjustAmount) !== 0" class="od__row">
           <span>商家改价</span>
           <span>{{ Number(order.adjustAmount) > 0 ? '+' : '-' }}¥{{ money(Math.abs(Number(order.adjustAmount))) }}</span>
         </div>
@@ -289,6 +301,12 @@ function itemReview(item: OrderItem) {
   &__addr-body {
     flex: 1;
     min-width: 0;
+  }
+  &__logi-link {
+    flex-shrink: 0;
+    align-self: center;
+    font-size: 12px;
+    color: $text-3;
   }
   &__logi-title {
     font-size: 14px;

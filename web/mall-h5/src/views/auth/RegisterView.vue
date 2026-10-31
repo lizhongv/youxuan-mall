@@ -7,6 +7,7 @@ import { useAuthRedirect } from '@/composables/useAuthRedirect'
 import { isMobile } from '@/utils'
 import NavBar from '@/components/NavBar.vue'
 import SmsCodeButton from '@/components/SmsCodeButton.vue'
+import AgreementCheck from '@/components/AgreementCheck.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,7 +17,8 @@ const mobile = ref('')
 const code = ref('')
 const password = ref('')
 const nickname = ref('')
-const agree = ref(true)
+/** 协议默认不勾选（合规要求） */
+const agree = ref(false)
 const loading = ref(false)
 
 async function submit() {
@@ -70,10 +72,6 @@ async function submit() {
     <div class="auth__links">
       <span @click="router.replace({ name: 'login', query: route.query })">已有账号？去登录</span>
     </div>
-    <div class="auth__agree">
-      <van-checkbox v-model="agree" icon-size="14">
-        我已阅读并同意<span class="text-primary">《用户协议》</span>和<span class="text-primary">《隐私政策》</span>
-      </van-checkbox>
-    </div>
+    <AgreementCheck v-model="agree" />
   </div>
 </template>

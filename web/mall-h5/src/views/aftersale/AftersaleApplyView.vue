@@ -6,10 +6,13 @@ import type { AftersaleType, Order, OrderItem } from '@/types'
 import { getOrder } from '@/api/order'
 import { applyAftersale } from '@/api/aftersale'
 import { AFTERSALE_REASONS } from '@/utils/dict'
-import { money } from '@/utils'
+import { fmtSpec, money } from '@/utils'
 import NavBar from '@/components/NavBar.vue'
 import Price from '@/components/Price.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadState from '@/components/LoadState.vue'
+import { useDict } from '@/composables/useDict'
+import { errorMessage } from '@/api/request'
 import ImageUploader from '@/components/ImageUploader.vue'
 
 const route = useRoute()
@@ -29,21 +32,29 @@ const amount = ref('')
 const description = ref('')
 const images = ref<string[]>([])
 
-onMounted(async () => {
+const loadError = ref('')
+async function load() {
+  loading.value = true
+  loadError.value = ''
   try {
     order.value = await getOrder(orderId)
     item.value = order.value.items.find((i) => i.id === itemId) || null
     if (item.value) amount.value = money(maxAmount.value)
+  } catch (e) {
+    loadError.value = errorMessage(e)
   } finally {
     loading.value = false
   }
-})
+}
+onMounted(load)
 
 /** 待发货只能仅退款；待收货/已完成可选退货退款 */
 const onlyRefund = computed(() => order.value?.status === 'PENDING_DELIVERY')
 /** 最大可退：该明细实付分摊金额 */
 const maxAmount = computed(() => Number(item.value?.payAmount ?? item.value?.totalAmount ?? 0))
-const reasonActions = AFTERSALE_REASONS.map((name) => ({ name }))
+/** 售后原因取字典 aftersale_reason，失败时用内置列表 */
+const reasons = useDict('aftersale_reason', AFTERSALE_REASONS)
+const reasonActions = computed(() => reasons.value.map((r) => ({ name: r.label })))
 
 async function submit() {
   if (!item.value) return
@@ -78,14 +89,15 @@ function onReason(a: { name: string }) {
 <template>
   <div class="page apply">
     <NavBar title="申请售后" />
-    <van-loading v-if="loading" class="apply__loading" vertical>加载中...</van-loading>
-    <EmptyState v-else-if="!item || !order" description="订单商品不存在" />
+    <LoadState v-if="!item || !order" :loading="loading" :error="loadError" @retry="load">
+      <EmptyState description="订单商品不存在" />
+    </LoadState>
     <template v-else>
       <div class="card apply__goods">
         <van-image :src="item.pic" width="64" height="64" radius="6" fit="cover" />
         <div class="apply__goods-body">
           <div class="ellipsis-2 apply__goods-name">{{ item.goodsName }}</div>
-          <div class="apply__goods-spec ellipsis">{{ item.specText }} x{{ item.quantity }}</div>
+          <div class="apply__goods-spec ellipsis">{{ fmtSpec(item.specText) }} x{{ item.quantity }}</div>
         </div>
         <Price :value="item.payAmount" size="xs" color="inherit" />
       </div>

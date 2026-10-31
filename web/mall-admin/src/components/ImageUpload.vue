@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, nextTick, ref } from 'vue'
+import { ElMessage, useFormItem } from 'element-plus'
 import { fileApi } from '@/api/system'
 
 /**
@@ -49,10 +49,14 @@ const max = computed(() => (props.multiple ? props.limit : 1))
 const canAdd = computed(() => !props.disabled && urls.value.length + uploading.value < max.value)
 const boxStyle = computed(() => ({ width: `${props.size}px`, height: `${props.size}px` }))
 
+// 自定义表单控件：值变化后主动触发所在 el-form-item 的 change 校验，上传成功后「请上传」提示立即消失
+const { formItem } = useFormItem()
+
 function emitValue(list: string[]) {
   const v = props.multiple ? list : list[0] || ''
   emit('update:modelValue', v)
   emit('change', v)
+  nextTick(() => formItem?.validate?.('change').catch(() => undefined))
 }
 
 function pick() {
@@ -155,7 +159,7 @@ function onDrop(i: number) {
       <div v-if="canAdd" class="image-upload__trigger" :style="boxStyle" @click="pick">
         <el-icon><Plus /></el-icon>
         <span v-if="multiple">{{ urls.length }}/{{ limit }}</span>
-        <span v-else>上传图片</span>
+        <span v-else-if="size >= 72">上传图片</span>
       </div>
     </div>
     <div v-if="tip || multiple" class="form-tip">

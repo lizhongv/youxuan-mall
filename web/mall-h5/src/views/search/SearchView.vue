@@ -17,7 +17,8 @@ const MAX_HISTORY = 15
 onMounted(async () => {
   try {
     const res = await getGoodsPage({ page: 1, size: 8, sort: 'SALES' })
-    const names = (res?.records || []).map((g) => (g.name.length > 10 ? g.name.slice(0, 10) : g.name))
+    // 热搜词保留完整商品名，过长时由标签样式省略显示
+    const names = (res?.records || []).map((g) => g.name)
     hot.value = names.length ? names : FALLBACK_HOT
   } catch {
     hot.value = FALLBACK_HOT
@@ -107,10 +108,27 @@ function back() {
     padding: 4px;
     color: $text;
   }
+  /*
+   * van-search 内部的 field 是 van-cell，样式加载顺序可能让 cell 的白底盖住搜索框灰底，
+   * 只露出左侧圆角一截（背景错位）：统一由 content 提供灰底，field 透明。
+   */
   &__input {
     flex: 1;
     min-width: 0;
     padding: 8px 6px;
+    background: transparent;
+    :deep(.van-search__content) {
+      height: 34px;
+      align-items: center;
+      background: $bg;
+    }
+    :deep(.van-search__field),
+    :deep(.van-cell) {
+      height: 100%;
+      padding-top: 0;
+      padding-bottom: 0;
+      background: transparent;
+    }
   }
   &__btn {
     flex-shrink: 0;

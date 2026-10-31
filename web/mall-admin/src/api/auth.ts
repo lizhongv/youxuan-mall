@@ -1,10 +1,12 @@
 import { http } from '@/utils/request'
-import type { LoginForm, PasswordForm, ProfileForm, TokenPair, UserInfo } from '@/types'
+import type { Captcha, LoginForm, PasswordForm, ProfileForm, TokenPair, UserInfo } from '@/types'
 
 export const authApi = {
+  captcha: () => http.get<Captcha>('/admin/auth/captcha'),
   login: (data: LoginForm) => http.post<TokenPair>('/admin/auth/login', data),
-  logout: () => http.post<void>('/admin/auth/logout', undefined, { silent: true }),
+  logout: (refreshToken?: string) => http.post<void>('/admin/auth/logout', refreshToken ? { refreshToken } : {}, { silent: true }),
   me: () => http.get<UserInfo>('/admin/auth/me'),
   updateProfile: (data: ProfileForm) => http.put<void>('/admin/auth/profile', data),
-  updatePassword: (data: PasswordForm) => http.put<void>('/admin/auth/password', data),
+  /** 改密成功返回新令牌：该账号所有旧令牌已失效，必须替换本地令牌 */
+  updatePassword: (data: PasswordForm) => http.put<TokenPair | null>('/admin/auth/password', data),
 }

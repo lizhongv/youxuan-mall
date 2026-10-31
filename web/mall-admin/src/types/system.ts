@@ -3,6 +3,15 @@ import type { ID, Switch } from './api'
 export interface LoginForm {
   username: string
   password: string
+  captchaId?: string
+  captchaCode?: string
+}
+
+/** 图形验证码：image 为 data URI；devCode 仅 demo 模式返回 */
+export interface Captcha {
+  captchaId: string
+  image: string
+  devCode?: string
 }
 
 export interface TokenPair {
@@ -42,6 +51,8 @@ export interface UserInfo {
   roles: string[]
   permissions: string[]
   menus: MenuTree[]
+  /** true 时必须先修改初始密码，其余接口返回 40301 */
+  mustChangePassword?: boolean
 }
 
 export interface ProfileForm {
@@ -98,6 +109,8 @@ export interface SysConfig {
   configValue: string
   name: string
   remark: string
+  /** 敏感参数：已设置时 configValue 为 ******，未设置为空串；提交 ****** 表示不修改 */
+  sensitive?: boolean
 }
 
 export interface OperLog {

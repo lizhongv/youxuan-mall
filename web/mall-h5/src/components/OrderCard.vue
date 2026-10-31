@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { fmtSpec } from '@/utils'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Order } from '@/types'
@@ -42,7 +43,7 @@ function open() {
       <van-image :src="it.pic" width="80" height="80" radius="6" fit="cover" lazy-load />
       <div class="order-card__item-info">
         <div class="order-card__item-name ellipsis-2">{{ it.goodsName }}</div>
-        <div v-if="it.specText" class="order-card__item-spec ellipsis">{{ it.specText }}</div>
+        <div v-if="it.specText" class="order-card__item-spec ellipsis">{{ fmtSpec(it.specText) }}</div>
       </div>
       <div class="order-card__item-right">
         <Price :value="it.price" size="xs" color="inherit" />

@@ -5,7 +5,22 @@ import { storage, KEYS } from '@/utils/storage'
 import router from '@/router'
 
 /** 业务码 */
-export const CODE = { OK: 0, UNAUTHORIZED: 40100, FORBIDDEN: 40300, BIZ: 60000 } as const
+export const CODE = {
+  OK: 0,
+  UNAUTHORIZED: 40100,
+  FORBIDDEN: 40300,
+  NEED_CAPTCHA: 40002,
+  TOO_MANY: 42900,
+  BIZ: 60000,
+  /** 余额支付：请先设置支付密码 */
+  PAY_PWD_UNSET: 60010,
+  /** 余额支付：支付密码错误（msg 含剩余次数） */
+  PAY_PWD_WRONG: 60011,
+  /** 余额支付：错误次数过多已锁定 */
+  PAY_PWD_LOCKED: 60012,
+  /** 网络错误 / 超时（非服务端业务码） */
+  NETWORK: -1,
+} as const
 
 /** 扩展配置：silent 不弹出错误提示；_retried 内部标记已重试 */
 export interface ReqConfig extends AxiosRequestConfig {
@@ -16,10 +31,25 @@ export interface ReqConfig extends AxiosRequestConfig {
 /** 业务异常：携带 code，便于页面按需处理 */
 export class ApiError extends Error {
   code: number
-  constructor(code: number, msg: string) {
+  /** 错误响应里的 data（如登录失败的 {needCaptcha}） */
+  data?: unknown
+  constructor(code: number, msg: string, data?: unknown) {
     super(msg)
     this.code = code
+    this.data = data
   }
+}
+
+/** 错误响应是否要求图形验证码（40002，或业务错误附带 needCaptcha=true） */
+export function needCaptcha(e: unknown): boolean {
+  if (!(e instanceof ApiError)) return false
+  const d = e.data as { needCaptcha?: boolean } | null | undefined
+  return e.code === CODE.NEED_CAPTCHA || !!d?.needCaptcha
+}
+
+/** 取错误文案（页面内错误态展示用） */
+export function errorMessage(e: unknown, fallback = '加载失败，请稍后重试'): string {
+  return e instanceof Error && e.message ? e.message : fallback
 }
 
 const service = axios.create({ baseURL: '/api', timeout: 15000 })
@@ -109,13 +139,13 @@ export async function request<T = unknown>(rawConfig: ReqConfig): Promise<T> {
       err.response?.data?.msg ||
       (err.code === 'ECONNABORTED' ? '请求超时，请稍后重试' : err.response ? `服务异常（${err.response.status}）` : '网络连接失败')
     if (!config.silent) showToast(msg)
-    throw new ApiError(err.response?.data?.code ?? -1, msg)
+    throw new ApiError(err.response?.data?.code ?? CODE.NETWORK, msg, err.response?.data?.data)
   }
   if (body && typeof body === 'object' && 'code' in body) {
     if (body.code === CODE.OK) return body.data
     if (body.code === CODE.UNAUTHORIZED) return handleUnauthorized<T>(config)
     if (!config.silent) showToast(body.msg || '操作失败')
-    throw new ApiError(body.code, body.msg)
+    throw new ApiError(body.code, body.msg || '操作失败', body.data)
   }
   return body as unknown as T
 }

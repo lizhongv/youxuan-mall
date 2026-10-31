@@ -13,6 +13,9 @@ export interface TabItem {
   affix?: boolean
 }
 
+/** 页签数量上限 */
+const MAX_TABS = 12
+
 const HOME: TabItem = { path: '/dashboard', fullPath: '/dashboard', name: 'Dashboard', title: '数据概览', icon: 'Odometer', affix: true }
 
 export const useTabsStore = defineStore('tabs', {
@@ -42,6 +45,12 @@ export const useTabsStore = defineStore('tabs', {
           icon: route.meta.icon,
           affix: route.path === HOME.path,
         })
+        // 超过上限时自动关闭最早打开的非固定页签（不关当前页）
+        while (this.tabs.length > MAX_TABS) {
+          const idx = this.tabs.findIndex((t) => !t.affix && t.path !== route.path)
+          if (idx < 0) break
+          this.tabs.splice(idx, 1)
+        }
       }
       this.ensureHome()
       this.persist()

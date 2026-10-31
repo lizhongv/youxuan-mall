@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CANCEL_REASONS } from '@/composables/useOrderActions'
+import { CANCEL_REASONS } from '@/utils/dict'
+import { useDict } from '@/composables/useDict'
 
 /** 取消订单原因选择 */
 const show = defineModel<boolean>('show', { default: false })
 const emit = defineEmits<{ select: [reason: string] }>()
-const actions = computed(() => CANCEL_REASONS.map((name) => ({ name })))
+/** 取消原因取字典 cancel_reason，失败时用内置列表 */
+const reasons = useDict('cancel_reason', CANCEL_REASONS)
+const actions = computed(() => reasons.value.map((r) => ({ name: r.label })))
 function onSelect(a: { name: string }) {
   emit('select', a.name)
 }

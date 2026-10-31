@@ -1,21 +1,23 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showImagePreview, showSuccessToast, showToast } from 'vant'
-import type { Coupon, GoodsDetail, SkuAction, Sku } from '@/types'
-import { getAvailableCoupons, getGoodsDetail } from '@/api/public'
+import type { Coupon, GoodsDetail, GoodsItem, SkuAction, Sku } from '@/types'
+import { getAvailableCoupons, getGoodsDetail, getGoodsPage } from '@/api/public'
+import { ApiError, CODE, errorMessage } from '@/api/request'
 import { addFavorite, removeFavorite } from '@/api/member'
 import { addCart } from '@/api/cart'
 import { useAppStore } from '@/stores/app'
 import { useCartStore } from '@/stores/cart'
 import { useUserStore } from '@/stores/user'
 import { useReceiveCoupon } from '@/composables/useCoupon'
-import { fmtSales, fmtTime, money, ratePercent, sanitizeHtml } from '@/utils'
+import { fmtSales, fmtTime, money, num, ratePercent, sanitizeHtml } from '@/utils'
 import Price from '@/components/Price.vue'
 import CountDown from '@/components/CountDown.vue'
 import SkuPopup from '@/components/SkuPopup.vue'
 import CouponCard from '@/components/CouponCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import GoodsWaterfall from '@/components/GoodsWaterfall.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,6 +28,9 @@ const user = useUserStore()
 const goods = ref<GoodsDetail | null>(null)
 const loading = ref(true)
 const notFound = ref(false)
+/** 网络 / 服务异常（区别于商品不存在） */
+const loadError = ref('')
+const recommend = ref<GoodsItem[]>([])
 const swipeIndex = ref(0)
 
 const skuShow = ref(false)
@@ -39,11 +44,20 @@ const { receive, canReceive, statusText } = useReceiveCoupon()
 
 async function load() {
   loading.value = true
+  loadError.value = ''
+  notFound.value = false
   try {
     goods.value = await getGoodsDetail(route.params.id as string)
     app.loadConfig()
-  } catch {
-    notFound.value = true
+    // 进行中的秒杀：默认选中秒杀 SKU
+    const sk = goods.value.seckill
+    if (sk?.state === 'ONGOING' && !skuId.value && goods.value.skus.some((s) => String(s.id) === String(sk.skuId))) {
+      skuId.value = String(sk.skuId)
+    }
+    loadRecommend(goods.value)
+  } catch (e) {
+    if (e instanceof ApiError && (e.code === CODE.NETWORK || e.code >= 50000 || e.code === 42900)) loadError.value = errorMessage(e)
+    else notFound.value = true
   } finally {
     loading.value = false
   }
@@ -52,12 +66,55 @@ async function load() {
     .catch(() => {})
 }
 onMounted(load)
+// 从「为你推荐」进入另一个商品：同一路由组件复用，需重新加载
+watch(
+  () => route.params.id,
+  (id, old) => {
+    if (!id || id === old || route.name !== 'goods') return
+    goods.value = null
+    skuId.value = ''
+    quantity.value = 1
+    recommend.value = []
+    window.scrollTo({ top: 0 })
+    load()
+  },
+)
 
-/* ---------------- 顶栏随滚动渐显 ---------------- */
+/** 底部「为你推荐」：同类目热销，排除当前商品 */
+function loadRecommend(g: GoodsDetail) {
+  getGoodsPage({ page: 1, size: 12, sort: 'SALES', categoryId: g.categoryId || undefined })
+    .then((r) => (recommend.value = (r?.records || []).filter((i) => String(i.id) !== String(g.id)).slice(0, 10)))
+    .catch(() => {})
+}
+
+/* ---------------- 顶栏随滚动渐显 + 吸顶锚点 ---------------- */
 const headerOpacity = ref(0)
+const anchor = ref<'goods' | 'review' | 'detail'>('goods')
+const reviewRef = ref<HTMLElement>()
+const detailRef = ref<HTMLElement>()
+const HEADER_H = 46
+
 function onScroll() {
   headerOpacity.value = Math.min(1, window.scrollY / 260)
+  const y = window.scrollY + HEADER_H + 10
+  const top = (el?: HTMLElement) => (el ? el.getBoundingClientRect().top + window.scrollY : Infinity)
+  if (y >= top(detailRef.value)) anchor.value = 'detail'
+  else if (y >= top(reviewRef.value)) anchor.value = 'review'
+  else anchor.value = 'goods'
 }
+
+function scrollToAnchor(a: 'goods' | 'review' | 'detail') {
+  const el = a === 'review' ? reviewRef.value : a === 'detail' ? detailRef.value : null
+  const y = el ? el.getBoundingClientRect().top + window.scrollY - HEADER_H : 0
+  window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' })
+}
+
+/** 多规格且价格不一：未选规格时价格后加「起」 */
+const multiPrice = computed(() => {
+  const g = goods.value
+  if (!g || g.skus.length < 2) return false
+  return new Set(g.skus.map((s) => num(s.price))).size > 1
+})
 onMounted(() => window.addEventListener('scroll', onScroll, { passive: true }))
 onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
 
@@ -183,7 +240,11 @@ function back() {
       <span class="gd__circle" :class="{ 'is-solid': headerOpacity > 0.6 }" @click="back">
         <van-icon name="arrow-left" />
       </span>
-      <span class="gd__header-title" :style="{ opacity: headerOpacity }">商品详情</span>
+      <div class="gd__anchors" :style="{ opacity: headerOpacity, pointerEvents: headerOpacity > 0.3 ? 'auto' : 'none' }">
+        <span :class="{ active: anchor === 'goods' }" @click="scrollToAnchor('goods')">商品</span>
+        <span :class="{ active: anchor === 'review' }" @click="scrollToAnchor('review')">评价</span>
+        <span :class="{ active: anchor === 'detail' }" @click="scrollToAnchor('detail')">详情</span>
+      </div>
       <span class="gd__circle" :class="{ 'is-solid': headerOpacity > 0.6 }" @click="router.push({ name: 'cart' })">
         <van-icon name="shopping-cart-o" />
       </span>
@@ -193,6 +254,13 @@ function back() {
       <div class="gd__sk-img" />
       <van-skeleton title :row="4" />
     </div>
+    <EmptyState
+      v-else-if="loadError"
+      image="network"
+      :description="`加载失败：${loadError}`"
+      button-text="重新加载"
+      @click="load"
+    />
     <EmptyState
       v-else-if="notFound || !goods"
       description="商品不存在或已下架"
@@ -238,8 +306,9 @@ function back() {
       <div class="gd__card gd__base">
         <div v-if="!seckillOngoing" class="gd__price-row">
           <Price :value="selectedSku?.price ?? goods.price" size="xl" />
+          <span v-if="!selectedSku && multiPrice" class="gd__qi">起</span>
           <Price
-            v-if="goods.originalPrice && goods.originalPrice > goods.price"
+            v-if="num(selectedSku?.originalPrice ?? goods.originalPrice) > num(selectedSku?.price ?? goods.price)"
             :value="selectedSku?.originalPrice ?? goods.originalPrice"
             strike
           />
@@ -280,11 +349,11 @@ function back() {
       </div>
 
       <!-- 评价摘要 -->
-      <div class="gd__card">
+      <div ref="reviewRef" class="gd__card">
         <div class="section-title" @click="router.push({ name: 'goods-reviews', params: { id: goods.id } })">
-          <span>商品评价({{ goods.reviewCount || 0 }})</span>
+          <span>商品评价({{ num(goods.reviewCount) }})</span>
           <span class="more">
-            <template v-if="goods.reviewCount">好评率 <b class="text-primary">{{ ratePercent(goods.goodRate) }}%</b></template>
+            <template v-if="num(goods.reviewCount) > 0">好评率 <b class="text-primary">{{ ratePercent(goods.goodRate) }}%</b></template>
             查看全部 <van-icon name="arrow" />
           </span>
         </div>
@@ -315,11 +384,17 @@ function back() {
       </div>
 
       <!-- 详情 -->
-      <div class="gd__detail">
+      <div ref="detailRef" class="gd__detail">
         <div class="gd__detail-title"><span>商品详情</span></div>
         <div v-if="detailHtml" class="rich-text gd__detail-html" v-html="detailHtml" />
         <div v-else class="gd__no-review">暂无详情</div>
       </div>
+
+      <!-- 为你推荐 -->
+      <template v-if="recommend.length">
+        <div class="gd__guess">— 为你推荐 —</div>
+        <GoodsWaterfall :list="recommend" />
+      </template>
 
       <!-- 底部操作栏 -->
       <van-action-bar safe-area-inset-bottom placeholder>
@@ -401,10 +476,42 @@ function back() {
     box-shadow: 0 1px 0 $border;
     pointer-events: none;
   }
-  &__header-title {
+  &__anchors {
     position: relative;
-    font-size: 16px;
-    font-weight: 600;
+    display: flex;
+    gap: 22px;
+    font-size: 15px;
+    color: $text-2;
+    span {
+      position: relative;
+      padding: 4px 0;
+      &.active {
+        color: $text;
+        font-weight: 600;
+        &::after {
+          content: '';
+          position: absolute;
+          left: 50%;
+          bottom: -2px;
+          width: 16px;
+          height: 3px;
+          margin-left: -8px;
+          border-radius: 2px;
+          background: $gradient;
+        }
+      }
+    }
+  }
+  &__qi {
+    margin-left: -2px;
+    font-size: 12px;
+    color: $primary;
+  }
+  &__guess {
+    padding: 18px 0 10px;
+    text-align: center;
+    font-size: 14px;
+    color: $text-2;
   }
   &__circle {
     position: relative;

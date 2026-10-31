@@ -145,18 +145,18 @@ function addrText(a: { province: string; city: string; district: string; detail:
         </div>
       </div>
       <el-table v-loading="loading" :data="list" row-key="id">
-        <el-table-column label="会员" min-width="200">
+        <el-table-column label="会员" min-width="220">
           <template #default="{ row }: { row: any }">
             <div class="member-cell" @click="openDetail(row)">
               <el-avatar :size="38" :src="row.avatar || undefined">{{ (row.nickname || '会').slice(0, 1) }}</el-avatar>
-              <div>
-                <div class="member-cell__name">{{ row.nickname || '未设置昵称' }}</div>
-                <div class="text-secondary sub">{{ genderMap[row.gender]?.label || '未知' }} · ID {{ row.id }}</div>
+              <div class="member-cell__body">
+                <div class="member-cell__name ellipsis">{{ row.nickname || '未设置昵称' }}</div>
+                <div class="text-secondary sub ellipsis" :title="`会员 ID ${row.id}`">{{ genderMap[row.gender]?.label || '未知' }} · <span class="mono-sm">ID {{ row.id }}</span></div>
               </div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="手机号" prop="mobile" width="130" />
+        <el-table-column label="手机号" prop="mobile" width="120" />
         <el-table-column label="等级" width="110">
           <template #default="{ row }: { row: any }">
             <span class="level-tag"><el-icon><Medal /></el-icon>{{ row.levelName || '-' }}</span>
@@ -165,9 +165,13 @@ function addrText(a: { province: string; city: string; district: string; detail:
         <el-table-column label="余额" width="110" align="right">
           <template #default="{ row }: { row: any }"><span class="money">{{ money(row.balance) }}</span></template>
         </el-table-column>
-        <el-table-column label="积分" prop="points" width="90" align="right" />
-        <el-table-column label="成长值" prop="growth" width="90" align="right" />
-        <el-table-column label="状态" width="100" align="center">
+        <el-table-column label="积分 / 成长值" width="110" align="right">
+          <template #default="{ row }: { row: any }">
+            <div>{{ row.points ?? 0 }}</div>
+            <div class="text-secondary sub">{{ row.growth ?? 0 }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }: { row: any }">
             <el-switch
               :model-value="row.status === 1"
@@ -179,19 +183,19 @@ function addrText(a: { province: string; city: string; district: string; detail:
             />
           </template>
         </el-table-column>
-        <el-table-column label="最近登录" width="160">
-          <template #default="{ row }: { row: any }"><span class="text-secondary">{{ formatTime(row.lastLoginAt) }}</span></template>
+        <el-table-column label="注册 / 最近登录" width="150">
+          <template #default="{ row }: { row: any }">
+            <div class="sub" :title="formatTime(row.createdAt)">{{ formatTime(row.createdAt, 'YYYY-MM-DD HH:mm') }}</div>
+            <div class="text-secondary sub" :title="formatTime(row.lastLoginAt)">{{ row.lastLoginAt ? formatTime(row.lastLoginAt, 'YYYY-MM-DD HH:mm') : '未登录' }}</div>
+          </template>
         </el-table-column>
-        <el-table-column label="注册时间" width="160">
-          <template #default="{ row }: { row: any }"><span class="text-secondary">{{ formatTime(row.createdAt) }}</span></template>
-        </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="110" fixed="right">
           <template #default="{ row }: { row: any }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
             <el-button v-if="canEdit" link type="primary" @click="openAdjust(row)">调账</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无会员" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无会员" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>
@@ -265,7 +269,7 @@ function addrText(a: { province: string; city: string; district: string; detail:
               <el-table-column label="时间" width="150">
                 <template #default="{ row }: { row: any }"><span class="sub">{{ formatTime(row.createdAt, 'YYYY-MM-DD HH:mm') }}</span></template>
               </el-table-column>
-              <template #empty><EmptyState text="暂无流水" :size="90" /></template>
+              <template #empty><EmptyState v-if="!logs.loading.value" text="暂无流水" :size="90" /><div v-else class="table-placeholder" /></template>
             </el-table>
             <Pagination
               :page="logs.page.value"
@@ -332,11 +336,20 @@ function addrText(a: { province: string; city: string; district: string; detail:
   font-size: 12px;
   margin-top: 2px;
 }
+.mono-sm {
+  font-family: 'JetBrains Mono', Consolas, Menlo, monospace;
+  font-size: 11px;
+}
 .member-cell {
   display: flex;
   align-items: center;
   gap: 10px;
   cursor: pointer;
+  min-width: 0;
+  &__body {
+    min-width: 0;
+    flex: 1;
+  }
   &__name {
     color: var(--app-text);
     font-weight: 500;

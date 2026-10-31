@@ -18,7 +18,8 @@ const html = defineModel<string>({ default: '' })
 const editorRef = shallowRef<IDomEditor>()
 
 const toolbarConfig: Partial<IToolbarConfig> = {
-  excludeKeys: ['group-video', 'insertVideo', 'uploadVideo', 'fullScreen', 'codeBlock', 'emotion'],
+  // 精简工具栏，常见宽度下保持一行：去掉视频、代码块、表情、待办、字体、行高、缩进组、全屏
+  excludeKeys: ['group-video', 'insertVideo', 'uploadVideo', 'fullScreen', 'codeBlock', 'emotion', 'todo', 'fontFamily', 'lineHeight', 'group-indent', 'divider'],
 }
 
 type InsertFn = (url: string, alt: string, href: string) => void

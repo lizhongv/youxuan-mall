@@ -23,6 +23,10 @@ export interface Profile {
   couponCount: number
   favoriteCount: number
   orderCount: OrderCount
+  /** 是否已设置登录密码（验证码注册的会员为 false） */
+  hasPassword?: boolean
+  /** 是否已设置余额支付密码 */
+  hasPayPassword?: boolean
 }
 
 export interface ProfileForm {
@@ -65,4 +69,10 @@ export interface AccountLog {
   bizNo?: string
   remark?: string
   createdAt: string
+}
+
+/** 字典项（GET /app/public/dict/{type}） */
+export interface DictItem {
+  label: string
+  value: string
 }

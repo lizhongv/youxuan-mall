@@ -2,11 +2,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showLoadingToast, closeToast, showToast } from 'vant'
-import type { ConfirmResult, CouponOption, OrderSubmit } from '@/types'
+import type { Address, ConfirmResult, CouponOption, OrderSubmit } from '@/types'
 import { confirmOrder, submitOrder } from '@/api/order'
+import { getAddressList, getDefaultAddress } from '@/api/member'
+import { ApiError, CODE, errorMessage } from '@/api/request'
 import { useAppStore } from '@/stores/app'
 import { useCartStore } from '@/stores/cart'
-import { money, uuid } from '@/utils'
+import { fmtSpec, money, num, uuid } from '@/utils'
 import NavBar from '@/components/NavBar.vue'
 import Price from '@/components/Price.vue'
 import CouponCard from '@/components/CouponCard.vue'
@@ -19,7 +21,12 @@ const cart = useCartStore()
 const payload = ref<OrderSubmit | null>(app.checkout ? { ...app.checkout } : null)
 const data = ref<ConfirmResult | null>(null)
 const loading = ref(true)
-const failed = ref(false)
+/** 整页加载失败（网络等）的文案 */
+const loadError = ref('')
+/** 收货地址相关的业务错误（如「收货地址不在「xx」的配送范围内」），显示在地址下方 */
+const addrError = ref('')
+/** 出错时用户选中的地址（结算预览失败拿不到出参 address，从地址列表取来展示） */
+const pickedAddress = ref<Address | null>(null)
 const submitting = ref(false)
 const remark = ref(payload.value?.remark || '')
 const couponShow = ref(false)
@@ -30,41 +37,88 @@ const couponTab = ref(0)
  */
 let idemKey = uuid()
 
+/** 业务错误（非网络 / 非登录失效）且与地址相关 */
+function isAddressError(e: unknown) {
+  return (
+    e instanceof ApiError &&
+    e.code !== CODE.NETWORK &&
+    e.code !== CODE.UNAUTHORIZED &&
+    /地址|配送|省份|收货/.test(e.message)
+  )
+}
+
 async function refresh() {
   if (!payload.value) {
     loading.value = false
     return
   }
-  // 地址列表选择模式写回的地址优先
-  if (app.selectedAddressId) payload.value.addressId = app.selectedAddressId
-  failed.value = false
+  loadError.value = ''
   try {
-    data.value = await confirmOrder({ ...payload.value, remark: remark.value })
-    if (data.value.address?.id && !payload.value.addressId) payload.value.addressId = data.value.address.id
+    const res = await confirmOrder({ ...payload.value, remark: remark.value })
+    data.value = res
+    addrError.value = ''
+    pickedAddress.value = null
+    // 未传地址时后端回退到默认地址：记住它，提交时使用同一个地址
+    if (res.address?.id && !payload.value.addressId) payload.value.addressId = res.address.id
     idemKey = uuid()
-  } catch {
-    failed.value = true
+  } catch (e) {
+    if (payload.value.addressId && isAddressError(e)) {
+      addrError.value = errorMessage(e)
+      const list = await getAddressList().catch(() => [] as Address[])
+      pickedAddress.value = list.find((a) => a.id === payload.value?.addressId) || null
+    } else if (data.value) {
+      // 已有结算数据（如切换优惠券失败）：保留页面，只提示
+      showToast(errorMessage(e, '计算失败，请重试'))
+    } else {
+      loadError.value = errorMessage(e)
+    }
   } finally {
     loading.value = false
   }
 }
-onMounted(refresh)
+
+async function init() {
+  if (payload.value) {
+    if (app.selectedAddressId) {
+      // 地址列表（选择模式）/ 新增地址写回的地址优先
+      payload.value.addressId = app.selectedAddressId
+      persist()
+    } else if (!payload.value.addressId) {
+      // 主动带出默认地址（后端未传 addressId 时也会回退默认地址，这里保证提交与预览一致）
+      const def = await getDefaultAddress().catch(() => null)
+      if (def?.id) payload.value.addressId = def.id
+    }
+  }
+  await refresh()
+}
+onMounted(init)
+
+function retry() {
+  loading.value = true
+  init()
+}
+
+/** 地址卡片展示：出错时展示用户选中的地址 */
+const shownAddress = computed<Address | null>(() => (addrError.value ? pickedAddress.value : data.value?.address || null))
+const canSubmit = computed(() => !!data.value && !addrError.value)
 
 const usableCoupons = computed(() => (data.value?.coupons || []).filter((c) => c.usable))
 const unusableCoupons = computed(() => (data.value?.coupons || []).filter((c) => !c.usable))
-const totalQty = computed(() => (data.value?.items || []).reduce((a, i) => a + i.quantity, 0))
+const totalQty = computed(() => (data.value?.items || []).reduce((a, i) => a + num(i.quantity), 0))
 const selectedCouponId = computed(() => (data.value?.memberCouponId ? String(data.value.memberCouponId) : ''))
 
 const couponText = computed(() => {
   const d = data.value
   if (!d) return ''
-  if (Number(d.couponAmount) > 0) return `-¥${money(d.couponAmount)}`
+  if (num(d.couponAmount) > 0) return `-¥${money(d.couponAmount)}`
   if (usableCoupons.value.length) return payload.value?.memberCouponId === '0' ? '不使用优惠券' : `${usableCoupons.value.length}张可用`
   return '暂无可用'
 })
 
 function persist() {
-  if (payload.value) app.setCheckout({ ...payload.value, remark: remark.value })
+  if (!payload.value) return
+  // setCheckout 会同步 selectedAddressId，保持与当前选择一致
+  app.setCheckout({ ...payload.value, remark: remark.value })
 }
 
 async function chooseCoupon(c: CouponOption | null) {
@@ -80,12 +134,16 @@ async function chooseCoupon(c: CouponOption | null) {
 
 function chooseAddress() {
   persist()
-  router.push({ name: 'address', query: { select: '1', id: data.value?.address?.id || '' } })
+  router.push({ name: 'address', query: { select: '1', id: shownAddress.value?.id || payload.value?.addressId || '' } })
 }
 
 async function submit() {
   const d = data.value
   if (!payload.value || !d) return
+  if (addrError.value) {
+    showToast(addrError.value)
+    return
+  }
   if (!d.address) {
     showToast('请先添加收货地址')
     chooseAddress()
@@ -99,9 +157,14 @@ async function submit() {
     )
     if (payload.value.source === 'CART') cart.refreshCount()
     sessionStorage.removeItem('mall_h5_checkout')
+    app.selectedAddressId = ''
     router.replace({ name: 'cashier', params: { orderId: res.orderId } })
-  } catch {
-    /* 已提示；保留幂等键，重试时服务端可识别重复提交 */
+  } catch (e) {
+    /* 已提示；保留幂等键，重试时服务端可识别重复提交。地址类错误同时显示在页面上 */
+    if (isAddressError(e)) {
+      addrError.value = errorMessage(e)
+      pickedAddress.value = d.address
+    }
   } finally {
     submitting.value = false
   }
@@ -119,20 +182,26 @@ async function submit() {
       button-text="去购物车"
       @click="router.replace({ name: 'cart' })"
     />
-    <EmptyState v-else-if="failed && !data" image="error" description="结算信息加载失败" button-text="重试" @click="refresh" />
+    <EmptyState
+      v-else-if="loadError && !data && !addrError"
+      image="network"
+      :description="`结算信息加载失败：${loadError}`"
+      button-text="重新加载"
+      @click="retry"
+    />
 
-    <template v-else-if="data">
+    <template v-else-if="data || addrError">
       <!-- 地址 -->
       <div class="confirm__address" @click="chooseAddress">
-        <template v-if="data.address">
+        <template v-if="shownAddress">
           <van-icon name="location" class="confirm__addr-icon" />
           <div class="confirm__addr-body">
             <div class="confirm__addr-region ellipsis">
-              <span v-if="data.address.isDefault" class="confirm__default">默认</span>
-              {{ data.address.province }} {{ data.address.city }} {{ data.address.district }}
+              <span v-if="num(shownAddress.isDefault)" class="confirm__default">默认</span>
+              {{ shownAddress.province }} {{ shownAddress.city }} {{ shownAddress.district }}
             </div>
-            <div class="confirm__addr-detail ellipsis-2">{{ data.address.detail }}</div>
-            <div class="confirm__addr-user">{{ data.address.name }} {{ data.address.mobile }}</div>
+            <div class="confirm__addr-detail ellipsis-2">{{ shownAddress.detail }}</div>
+            <div class="confirm__addr-user">{{ shownAddress.name }} {{ shownAddress.mobile }}</div>
           </div>
           <van-icon name="arrow" class="text-3" />
         </template>
@@ -143,7 +212,20 @@ async function submit() {
         </template>
         <div class="confirm__addr-stripe" />
       </div>
+      <div v-if="addrError" class="confirm__addr-error">
+        <van-icon name="warning" />
+        <span class="confirm__addr-error-text">{{ addrError }}</span>
+        <span class="confirm__addr-error-btn" @click="chooseAddress">更换地址</span>
+      </div>
+      <EmptyState
+        v-if="!data"
+        image="error"
+        description="当前地址无法配送，请更换收货地址"
+        button-text="更换收货地址"
+        @click="chooseAddress"
+      />
 
+      <template v-if="data">
       <!-- 商品 -->
       <div class="card">
         <div v-for="it in data.items" :key="it.skuId" class="confirm__goods">
@@ -152,7 +234,7 @@ async function submit() {
             <div class="confirm__goods-name ellipsis-2">
               <span v-if="payload.seckillId" class="confirm__sk">秒杀</span>{{ it.goodsName }}
             </div>
-            <div v-if="it.specText" class="confirm__goods-spec ellipsis">{{ it.specText }}</div>
+            <div v-if="it.specText" class="confirm__goods-spec ellipsis">{{ fmtSpec(it.specText) }}</div>
             <div class="confirm__goods-foot">
               <Price :value="it.price" size="sm" color="inherit" />
               <span class="text-3">x{{ it.quantity }}</span>
@@ -167,20 +249,24 @@ async function submit() {
           <span>商品金额</span>
           <Price :value="data.goodsAmount" size="xs" color="inherit" />
         </div>
-        <div v-if="Number(data.discountAmount) > 0" class="confirm__cell">
+        <div v-if="num(data.discountAmount) > 0" class="confirm__cell">
           <span>会员折扣</span>
           <span class="text-primary">-¥{{ money(data.discountAmount) }}</span>
         </div>
         <div class="confirm__cell" @click="data.coupons?.length && (couponShow = true)">
           <span>优惠券</span>
-          <span :class="Number(data.couponAmount) > 0 || usableCoupons.length ? 'text-primary' : 'text-3'">
+          <span :class="num(data.couponAmount) > 0 || usableCoupons.length ? 'text-primary' : 'text-3'">
             {{ couponText }}
             <van-icon v-if="data.coupons?.length" name="arrow" class="text-3" />
           </span>
         </div>
         <div class="confirm__cell">
           <span>运费</span>
-          <span>{{ Number(data.freightAmount) > 0 ? `+¥${money(data.freightAmount)}` : '包邮' }}</span>
+          <span v-if="addrError" class="text-3">无法配送</span>
+          <span v-else-if="!data.address" class="text-3">
+            {{ num(data.freightAmount) > 0 ? `预估 +¥${money(data.freightAmount)}` : '包邮' }}
+          </span>
+          <span v-else>{{ num(data.freightAmount) > 0 ? `+¥${money(data.freightAmount)}` : '包邮' }}</span>
         </div>
         <div class="confirm__cell confirm__cell--total">
           <span />
@@ -208,11 +294,18 @@ async function submit() {
         <div class="confirm__bar-sum">
           <span>合计：</span>
           <Price :value="data.payAmount" size="lg" />
-          <span v-if="Number(data.couponAmount) + Number(data.discountAmount) > 0" class="confirm__bar-save">
-            已优惠 ¥{{ money(Number(data.couponAmount) + Number(data.discountAmount)) }}
+          <span v-if="Number(data.couponAmount) + num(data.discountAmount) > 0" class="confirm__bar-save">
+            已优惠 ¥{{ money(num(data.couponAmount) + num(data.discountAmount)) }}
           </span>
         </div>
-        <van-button round class="btn-gradient confirm__submit" :loading="submitting" loading-text="提交中" @click="submit">
+        <van-button
+          round
+          class="btn-gradient confirm__submit"
+          :disabled="!canSubmit"
+          :loading="submitting"
+          loading-text="提交中"
+          @click="submit"
+        >
           提交订单
         </van-button>
       </div>
@@ -256,6 +349,7 @@ async function submit() {
           </div>
         </div>
       </van-popup>
+      </template>
     </template>
   </div>
 </template>
@@ -318,6 +412,28 @@ async function submit() {
   &__addr-user {
     font-size: 13px;
     color: $text-2;
+  }
+  &__addr-error {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px $gap 0;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 17px;
+    color: $primary;
+    background: $primary-light;
+    border-radius: $radius-sm;
+  }
+  &__addr-error-text {
+    flex: 1;
+    min-width: 0;
+  }
+  &__addr-error-btn {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border: 1px solid $primary;
+    border-radius: 999px;
   }
   &__addr-stripe {
     position: absolute;

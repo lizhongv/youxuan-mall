@@ -9,6 +9,9 @@ import type {
   PageResult,
   Profile,
   ProfileForm,
+  TokenResult,
+  CaptchaAnswer,
+  SmsCodeResult,
   UploadResult,
 } from '@/types'
 
@@ -17,8 +20,21 @@ export const getProfile = (silent = false) => http.get<Profile>('/app/member/pro
 
 export const updateProfile = (data: ProfileForm) => http.put<void>('/app/member/profile', data)
 
-export const updatePassword = (data: { oldPassword: string; newPassword: string }) =>
-  http.put<void>('/app/member/password', data)
+/** 修改登录密码：其他设备登录失效，返回新令牌替换本地令牌；未设置过密码时不传 oldPassword */
+export const updatePassword = (data: { oldPassword?: string; newPassword: string }) =>
+  http.put<TokenResult | null>('/app/member/password', data)
+
+/** 设置支付密码的短信验证码：发到当前登录会员自己的手机，需图形验证码 */
+export const sendPayPasswordSms = (captcha: CaptchaAnswer) =>
+  http.post<SmsCodeResult>('/app/member/pay-password/sms-code', captcha)
+
+/** 设置 / 修改余额支付密码（6 位数字，首次与修改同一接口，不需要旧密码）；弱密码在消耗验证码前被拒绝 */
+export const setPayPassword = (data: { code: string; payPassword: string }) =>
+  http.put<void>('/app/member/pay-password', data)
+
+/** 退出登录：作废 access 与提交的 refresh 令牌 */
+export const logout = (refreshToken?: string | null) =>
+  http.post<void>('/app/member/logout', { refreshToken: refreshToken || undefined }, { silent: true })
 
 export const getAddressList = () => http.get<Address[]>('/app/member/address')
 export const getDefaultAddress = () => http.get<Address | null>('/app/member/address/default', undefined, { silent: true })

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { showImagePreview } from 'vant'
 import type { Review } from '@/types'
-import { fmtTime } from '@/utils'
+import { fmtSpec, fmtTime } from '@/utils'
 
 /** 单条评价：头像昵称、星级、内容、图片九宫格（点击预览）、商家回复 */
 withDefaults(defineProps<{ review: Review; showGoods?: boolean }>(), { showGoods: false })
@@ -21,7 +21,7 @@ const emit = defineEmits<{ goods: [id: string] }>()
       </div>
       <span class="review__time">{{ fmtTime(review.createdAt, 'YYYY-MM-DD') }}</span>
     </div>
-    <div v-if="review.specText" class="review__spec ellipsis">{{ review.specText }}</div>
+    <div v-if="review.specText" class="review__spec ellipsis">{{ fmtSpec(review.specText) }}</div>
     <div class="review__content">{{ review.content || '用户未填写评价内容' }}</div>
     <div v-if="review.images?.length" class="review__imgs">
       <van-image

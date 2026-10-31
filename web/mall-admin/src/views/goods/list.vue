@@ -7,6 +7,7 @@ import type { Brand, Category, GoodsItem, GoodsStatus, Switch } from '@/types'
 import { useTable } from '@/composables/useTable'
 import { useUserStore } from '@/stores/user'
 import { formatTime, money } from '@/utils/format'
+import { StorageKey, storage } from '@/utils/storage'
 import { confirm, confirmDelete, toast } from '@/utils/message'
 import EmptyState from '@/components/EmptyState.vue'
 import Pagination from '@/components/Pagination.vue'
@@ -20,7 +21,24 @@ const { query, list, total, page, size, loading, selection, load, search, reset,
   { keyword: '', brandId: '', categoryId: '', status: '' as GoodsStatus | '' },
 )
 
-// ---------- 类目树筛选 ----------
+// ---------- 类目树筛选（可折叠，状态记忆） ----------
+const catOpen = ref(storage.get(StorageKey.catPanel) !== '0')
+function toggleCat() {
+  catOpen.value = !catOpen.value
+  storage.set(StorageKey.catPanel, catOpen.value ? '1' : '0')
+}
+const currentCategoryName = computed(() => {
+  const walk = (nodes: Category[]): string => {
+    for (const n of nodes) {
+      if (n.id === query.categoryId) return n.name
+      const c = walk(n.children || [])
+      if (c) return c
+    }
+    return ''
+  }
+  return query.categoryId ? walk(categories.value) : ''
+})
+
 const categories = shallowRef<Category[]>([])
 const treeRef = ref<TreeInstance>()
 const treeFilter = ref('')
@@ -114,10 +132,13 @@ function edit(row?: GoodsItem) {
 
 <template>
   <div class="goods-page">
-    <aside class="card cat-panel">
+    <aside v-show="catOpen" class="card cat-panel">
       <div class="cat-panel__head">
         <span class="card-title" style="margin: 0"><span class="card-title__text">商品类目</span></span>
-        <el-button v-if="query.categoryId" link type="primary" size="small" @click="clearCategory">全部</el-button>
+        <div class="flex-center" style="gap: 4px">
+          <el-button v-if="query.categoryId" link type="primary" size="small" @click="clearCategory">全部</el-button>
+          <el-tooltip content="收起类目"><el-button link size="small" :icon="'Fold'" aria-label="收起类目" @click="toggleCat" /></el-tooltip>
+        </div>
       </div>
       <el-input v-model="treeFilter" placeholder="搜索类目" clearable size="small" :prefix-icon="'Search'" @input="treeRef?.filter(treeFilter)" />
       <el-scrollbar class="cat-panel__tree">
@@ -145,6 +166,10 @@ function edit(row?: GoodsItem) {
     <section class="page goods-main">
       <div class="card">
         <el-form :model="query" inline class="search-bar" @submit.prevent="search">
+          <el-form-item v-if="!catOpen">
+            <el-button :icon="'Expand'" @click="toggleCat">类目筛选</el-button>
+            <el-tag v-if="currentCategoryName" closable class="cat-chip" @close="clearCategory">{{ currentCategoryName }}</el-tag>
+          </el-form-item>
           <el-form-item label="商品">
             <el-input v-model="query.keyword" placeholder="名称 / 关键词" clearable @keyup.enter="search" />
           </el-form-item>
@@ -178,48 +203,45 @@ function edit(row?: GoodsItem) {
           </div>
         </div>
 
-        <el-table v-loading="loading" :data="list" row-key="id" @selection-change="onSelectionChange">
-          <el-table-column type="selection" width="44" fixed="left" />
-          <el-table-column label="商品信息" min-width="300" fixed="left">
+        <el-table v-loading="loading" :data="list" row-key="id" class="goods-table" @selection-change="onSelectionChange">
+          <el-table-column type="selection" width="40" fixed="left" />
+          <el-table-column label="商品信息" min-width="260">
             <template #default="{ row }: { row: any }">
               <div class="goods-cell">
                 <el-image :src="row.pic" fit="cover" class="goods-cell__img" :preview-src-list="[row.pic]" preview-teleported />
                 <div class="goods-cell__body">
-                  <div class="goods-cell__name">{{ row.name }}</div>
-                  <div class="goods-cell__sub">{{ row.categoryName || '-' }}<template v-if="row.brandName"> · {{ row.brandName }}</template></div>
+                  <div class="goods-cell__name link" :title="row.name" @click="edit(row)">{{ row.name }}</div>
+                  <div class="goods-cell__sub ellipsis">{{ row.categoryName || '-' }}<template v-if="row.brandName"> · {{ row.brandName }}</template></div>
+                  <div class="flags">
+                    <el-check-tag
+                      v-for="f in FLAGS"
+                      :key="f.key"
+                      :checked="!!row[f.key]"
+                      :type="f.key === 'isHot' ? 'danger' : f.key === 'isNew' ? 'success' : 'primary'"
+                      :class="{ 'is-readonly': !canEdit }"
+                      :title="canEdit ? `点击${row[f.key] ? '取消' : '设为'}${f.label}` : f.label"
+                      @change="toggleFlag(row, f.key)"
+                    >
+                      {{ f.label }}
+                    </el-check-tag>
+                  </div>
                 </div>
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="价格" width="130" align="right">
+          <el-table-column label="价格" width="104" align="right">
             <template #default="{ row }: { row: any }">
               <div class="money">{{ money(row.price) }}</div>
-              <div v-if="row.originalPrice > row.price" class="price-origin">{{ money(row.originalPrice) }}</div>
+              <div v-if="Number(row.originalPrice) > Number(row.price)" class="price-origin">{{ money(row.originalPrice) }}</div>
             </template>
           </el-table-column>
-          <el-table-column label="库存" width="90" align="right">
+          <el-table-column label="库存" width="72" align="right">
             <template #default="{ row }: { row: any }">
-              <span :class="{ 'text-danger': row.stock <= 10 }">{{ row.stock }}</span>
+              <span :class="{ 'text-danger': Number(row.stock) <= 10 }">{{ row.stock }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="销量" prop="sales" width="90" align="right" />
-          <el-table-column label="标签" width="190">
-            <template #default="{ row }: { row: any }">
-              <div class="flags">
-                <el-check-tag
-                  v-for="f in FLAGS"
-                  :key="f.key"
-                  :checked="!!row[f.key]"
-                  :type="f.key === 'isHot' ? 'danger' : f.key === 'isNew' ? 'success' : 'primary'"
-                  :class="{ 'is-readonly': !canEdit }"
-                  @change="toggleFlag(row, f.key)"
-                >
-                  {{ f.label }}
-                </el-check-tag>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="上架" width="90" align="center">
+          <el-table-column label="销量" prop="sales" width="72" align="right" />
+          <el-table-column label="上架" width="80" align="center">
             <template #default="{ row }: { row: any }">
               <el-switch
                 :model-value="row.status === 'ON_SALE'"
@@ -232,11 +254,13 @@ function edit(row?: GoodsItem) {
               />
             </template>
           </el-table-column>
-          <el-table-column label="排序" prop="sort" width="70" align="center" />
-          <el-table-column label="创建时间" width="170">
-            <template #default="{ row }: { row: any }"><span class="text-secondary">{{ formatTime(row.createdAt) }}</span></template>
+          <el-table-column label="排序 / 创建" width="108">
+            <template #default="{ row }: { row: any }">
+              <div class="text-secondary cell-sm">排序 {{ row.sort ?? 0 }}</div>
+              <div class="text-secondary cell-sm" :title="formatTime(row.createdAt)">{{ formatTime(row.createdAt, 'YYYY-MM-DD') }}</div>
+            </template>
           </el-table-column>
-          <el-table-column label="操作" width="130" fixed="right">
+          <el-table-column label="操作" width="104" fixed="right">
             <template #default="{ row }: { row: any }">
               <el-button v-if="canEdit" link type="primary" @click="edit(row)">编辑</el-button>
               <el-button v-else link type="primary" @click="edit(row)">查看</el-button>
@@ -244,9 +268,10 @@ function edit(row?: GoodsItem) {
             </template>
           </el-table-column>
           <template #empty>
-            <EmptyState text="还没有商品">
-              <el-button v-perm="'goods:goods:edit'" type="primary" size="small" @click="edit()">发布第一个商品</el-button>
+            <EmptyState v-if="!loading" :text="query.keyword || query.categoryId || query.brandId ? '没有符合条件的商品' : '还没有商品'">
+              <el-button v-if="!(query.keyword || query.categoryId || query.brandId)" v-perm="'goods:goods:edit'" type="primary" size="small" @click="edit()">发布第一个商品</el-button>
             </EmptyState>
+            <div v-else class="table-placeholder" />
           </template>
         </el-table>
         <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
@@ -263,7 +288,7 @@ function edit(row?: GoodsItem) {
 }
 .cat-panel {
   flex: none;
-  width: 230px;
+  width: 210px;
   position: sticky;
   top: 0;
   display: flex;
@@ -304,13 +329,28 @@ function edit(row?: GoodsItem) {
   color: var(--app-text-placeholder);
   text-decoration: line-through;
 }
+.cat-chip {
+  margin-left: 8px;
+}
+.link {
+  cursor: pointer;
+  &:hover {
+    color: var(--el-color-primary);
+  }
+}
+.cell-sm {
+  font-size: 12px;
+  line-height: 1.6;
+}
 .flags {
   display: flex;
-  gap: 6px;
+  gap: 4px;
+  margin-top: 4px;
   .el-check-tag {
-    padding: 4px 8px;
-    font-size: 12px;
+    padding: 1px 6px;
+    font-size: 11px;
     font-weight: 500;
+    line-height: 18px;
   }
   .is-readonly {
     cursor: default;

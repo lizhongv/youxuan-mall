@@ -272,7 +272,7 @@ function openRecords(row: Coupon) {
         </div>
       </div>
       <el-table v-loading="loading" :data="list" row-key="id">
-        <el-table-column label="优惠券" min-width="280">
+        <el-table-column label="优惠券" min-width="240">
           <template #default="{ row }: { row: any }">
             <div class="coupon-cell">
               <div class="coupon-cell__face" :class="`is-${row.type}`">
@@ -300,7 +300,7 @@ function openRecords(row: Coupon) {
             <el-progress v-if="row.total" :percentage="Math.min(100, Math.round((row.issued / row.total) * 100))" :stroke-width="6" :show-text="false" />
           </template>
         </el-table-column>
-        <el-table-column label="有效期" min-width="230">
+        <el-table-column label="有效期" min-width="200">
           <template #default="{ row }: { row: any }"><span class="sub">{{ validText(row) }}</span></template>
         </el-table-column>
         <el-table-column label="发放" width="80" align="center">
@@ -308,14 +308,14 @@ function openRecords(row: Coupon) {
             <el-switch :model-value="row.status === 1" :disabled="!canEdit" @change="toggleStatus(row)" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="170" fixed="right">
           <template #default="{ row }: { row: any }">
             <el-button link type="primary" @click="openRecords(row)">领取记录</el-button>
             <el-button v-if="canEdit" link type="primary" @click="open(row)">编辑</el-button>
             <el-button v-if="canEdit" link type="danger" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="还没有优惠券" /></template>
+        <template #empty><EmptyState v-if="!loading" text="还没有优惠券" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>
@@ -465,7 +465,7 @@ function openRecords(row: Coupon) {
         <el-table-column label="领取时间" width="160">
           <template #default="{ row }: { row: any }">{{ formatTime(row.createdAt) }}</template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无领取记录" /></template>
+        <template #empty><EmptyState v-if="!records.loading.value" text="暂无领取记录" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination
         :page="records.page.value"

@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { bannerApi } from '@/api/marketing'
-import { categoryApi } from '@/api/goods'
+import { categoryApi, goodsApi } from '@/api/goods'
 import type { Banner, Category, GoodsItem, ID, LinkType, Switch } from '@/types'
 import { useTable } from '@/composables/useTable'
 import { useUserStore } from '@/stores/user'
 import { BANNER_POSITION, LINK_TYPE, toMap } from '@/utils/constants'
+import { flattenTree } from '@/utils/format'
 import { confirmDelete, toast } from '@/utils/message'
 import ImageUpload from '@/components/ImageUpload.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -71,7 +72,7 @@ const rules: FormRules = {
 
 function open(row?: Banner) {
   editingId.value = row?.id || ''
-  linkGoodsName.value = ''
+  linkGoodsName.value = row?.linkType === 'GOODS' && row.linkValue ? goodsNames.value[String(row.linkValue)] || '' : ''
   Object.assign(form, {
     title: row?.title || '',
     image: row?.image || '',
@@ -96,9 +97,32 @@ function onPick(rows: GoodsItem[]) {
   formRef.value?.validateField('linkValue')
 }
 
+// 跳转目标显示名称而不是 ID：类目取自类目树，商品按需查询并缓存
+const categoryNames = computed(() => new Map(flattenTree(categories.value).map((c) => [String(c.id), c.name])))
+const goodsNames = ref<Record<string, string>>({})
+const goodsLoading = new Set<string>()
+
+function ensureGoodsNames(rows: Banner[]) {
+  rows
+    .filter((b) => b.linkType === 'GOODS' && b.linkValue && !(b.linkValue in goodsNames.value) && !goodsLoading.has(b.linkValue))
+    .forEach((b) => {
+      const id = String(b.linkValue)
+      goodsLoading.add(id)
+      goodsApi
+        .detail(id)
+        .then((g) => (goodsNames.value = { ...goodsNames.value, [id]: g?.name || `商品 #${id}（已删除）` }))
+        .catch(() => (goodsNames.value = { ...goodsNames.value, [id]: `商品 #${id}` }))
+        .finally(() => goodsLoading.delete(id))
+    })
+}
+watch(list, (rows) => ensureGoodsNames(rows))
+
 function linkText(b: Banner) {
   if (b.linkType === 'NONE') return '-'
-  return `${linkMap[b.linkType]?.label}：${b.linkValue}`
+  const label = linkMap[b.linkType]?.label
+  if (b.linkType === 'CATEGORY') return `${label}：${categoryNames.value.get(String(b.linkValue)) || `#${b.linkValue}`}`
+  if (b.linkType === 'GOODS') return `${label}：${goodsNames.value[String(b.linkValue)] || '加载中…'}`
+  return `${label}：${b.linkValue}`
 }
 
 async function submit() {
@@ -171,7 +195,7 @@ async function submit() {
             <el-button link type="danger" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无轮播广告" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无轮播广告" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>

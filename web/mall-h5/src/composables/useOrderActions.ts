@@ -36,7 +36,6 @@ export const ACTION_TEXT: Record<OrderAction, string> = {
   logistics: '查看物流',
 }
 
-export const CANCEL_REASONS = ['不想要了', '地址信息填写错误', '商品选错/多选', '价格有点贵', '其他原因']
 
 /** 可申请售后的明细：未在售后中、未退款 */
 export function canApplyAftersale(order: Order, item: OrderItem) {
@@ -69,7 +68,7 @@ export function useOrderActions(onChanged: (type: OrderAction, order: Order) => 
         if (cancelPicker) cancelPicker(order)
         else {
           await showConfirmDialog({ title: '取消订单', message: '确定取消该订单吗？' })
-          await doCancel(order, '不想要了')
+          await doCancel(order, '不想买了')
         }
         return
       case 'receive':
@@ -101,7 +100,7 @@ export function useOrderActions(onChanged: (type: OrderAction, order: Order) => 
         return
       }
       case 'logistics':
-        router.push({ name: 'order-detail', params: { id: order.id } })
+        router.push({ name: 'logistics', params: { id: order.id } })
         return
       case 'rebuy':
         showLoadingToast({ message: '加入购物车...', forbidClick: true })

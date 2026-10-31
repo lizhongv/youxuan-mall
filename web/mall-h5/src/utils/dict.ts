@@ -27,6 +27,7 @@ export const AFTERSALE_STATUS_TEXT: Record<AftersaleStatus, string> = {
   APPLYING: '待审核',
   WAIT_RETURN: '待寄回商品',
   RETURNING: '退货中',
+  REFUNDING: '退款中',
   REFUNDED: '退款成功',
   REJECTED: '已拒绝',
   CANCELLED: '已撤销',
@@ -37,14 +38,20 @@ export const ITEM_AFTERSALE_TEXT: Record<string, string> = {
   REFUNDED: '已退款',
 }
 
-/** 售后原因（固定列表） */
+/** 售后原因（字典 aftersale_reason 的内置回退） */
 export const AFTERSALE_REASONS = ['不想要了', '商品与描述不符', '质量问题', '少件/漏发', '发错货', '其他']
+
+/** 取消原因（字典 cancel_reason 的内置回退） */
+export const CANCEL_REASONS = ['不想买了', '信息填写错误', '重复下单', '其他']
 
 export const PAY_TYPE_TEXT: Record<string, string> = {
   BALANCE: '余额支付',
   MOCK: '模拟支付',
   WECHAT: '微信支付',
+  WECHAT_JSAPI: '微信支付',
+  WECHAT_H5: '微信支付',
   ALIPAY: '支付宝',
+  ALIPAY_WAP: '支付宝',
 }
 
 export const ACCOUNT_BIZ_TEXT: Record<string, string> = {
@@ -58,5 +65,14 @@ export const ACCOUNT_BIZ_TEXT: Record<string, string> = {
 
 export const GENDER_TEXT = ['保密', '男', '女']
 
-/** 常用快递公司（退货物流选择） */
-export const EXPRESS_COMPANIES = ['顺丰速运', '中通快递', '圆通速递', '韵达快递', '申通快递', '京东物流', 'EMS', '极兔速递', '其他']
+/** 常用快递公司（字典 express_company 的内置回退；value 为快递100 编码） */
+export const EXPRESS_COMPANIES: { label: string; value: string }[] = [
+  { label: '顺丰速运', value: 'shunfeng' },
+  { label: '中通快递', value: 'zhongtong' },
+  { label: '圆通速递', value: 'yuantong' },
+  { label: '韵达快递', value: 'yunda' },
+  { label: '申通快递', value: 'shentong' },
+  { label: '京东物流', value: 'jd' },
+  { label: 'EMS', value: 'ems' },
+  { label: '极兔速递', value: 'jtexpress' },
+]

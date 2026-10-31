@@ -88,7 +88,7 @@ function pretty(s?: string) {
             <div class="text-secondary sub">{{ row.action }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="请求" min-width="260">
+        <el-table-column label="请求" min-width="220">
           <template #default="{ row }: { row: any }">
             <StatusTag :label="row.method" :tone="METHOD_TONE[row.method] || 'info'" :dot="false" />
             <span class="mono uri">{{ row.uri }}</span>
@@ -105,13 +105,13 @@ function pretty(s?: string) {
             <span :class="{ 'text-warning': row.costMs > 1000 }">{{ row.costMs }} ms</span>
           </template>
         </el-table-column>
-        <el-table-column label="时间" width="170">
+        <el-table-column label="时间" width="160">
           <template #default="{ row }: { row: any }"><span class="text-secondary">{{ formatTime(row.createdAt) }}</span></template>
         </el-table-column>
         <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }: { row: any }"><el-button link type="primary" @click="show(row)">详情</el-button></template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无操作日志" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无操作日志" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>

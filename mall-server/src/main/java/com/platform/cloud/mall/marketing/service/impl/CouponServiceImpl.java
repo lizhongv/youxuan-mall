@@ -271,6 +271,7 @@ public class CouponServiceImpl implements CouponService {
             vo.setDiscount(c.getDiscount());
             vo.setMaxAmount(c.getMaxAmount());
             vo.setScope(c.getScope());
+            vo.setScopeIds(c.getScopeIds() == null ? List.of() : c.getScopeIds());
             vo.setStartAt(mc.getStartAt());
             vo.setEndAt(mc.getEndAt());
             boolean lateExpired = MemberCouponStatus.UNUSED.name().equals(mc.getStatus()) && !mc.getEndAt().isAfter(now);

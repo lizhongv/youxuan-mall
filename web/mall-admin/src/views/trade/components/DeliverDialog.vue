@@ -7,7 +7,7 @@ import { useDict } from '@/composables/useDict'
 import { fullAddress } from '@/utils/format'
 import { toast } from '@/utils/message'
 
-/** 发货：快递公司取字典 express_company */
+/** 发货：快递公司取字典 express_company，提交 value（快递100 编码，后端也兼容 label），手输的公司名原样提交 */
 const props = defineProps<{ order: Pick<Order, 'id' | 'orderNo' | 'receiverName' | 'receiverMobile' | 'receiverProvince' | 'receiverCity' | 'receiverDistrict' | 'receiverDetail'> | null }>()
 const visible = defineModel<boolean>({ default: false })
 const emit = defineEmits<{ success: [] }>()
@@ -57,7 +57,7 @@ async function submit() {
     <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" @submit.prevent>
       <el-form-item label="快递公司" prop="deliveryCompany">
         <el-select v-model="form.deliveryCompany" :loading="dictLoading" placeholder="请选择" filterable allow-create class="w-full">
-          <el-option v-for="c in companies" :key="c.value" :label="c.label" :value="c.label" />
+          <el-option v-for="c in companies" :key="c.value" :label="c.label" :value="c.value" />
         </el-select>
       </el-form-item>
       <el-form-item label="快递单号" prop="deliveryNo">

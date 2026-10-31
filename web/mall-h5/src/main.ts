@@ -8,10 +8,12 @@ import 'vant/es/notify/style'
 import 'vant/es/image-preview/style'
 import '@/styles/global.scss'
 import { applyCssVars } from '@/styles/theme'
+import { setupChunkErrorHandler } from '@/utils/chunkError'
 import App from './App.vue'
 import router from './router'
 
 applyCssVars()
+setupChunkErrorHandler()
 
 const app = createApp(App)
 app.use(createPinia())

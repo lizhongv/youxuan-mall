@@ -47,7 +47,9 @@ export interface Seckill {
   skuId: string
   specText?: string
   seckillPrice: number
-  /** 原价（契约未列出，存在则展示） */
+  /** SKU 当前售价（划线对比用） */
+  price?: number
+  /** 兼容字段：旧版本可能返回 originalPrice */
   originalPrice?: number
   stock: number
   sold: number

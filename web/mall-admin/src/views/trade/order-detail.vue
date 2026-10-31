@@ -3,10 +3,10 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import type { FormInstance } from 'element-plus'
 import { orderApi } from '@/api/trade'
-import type { OrderDetail } from '@/types'
+import type { Logistics, OrderDetail } from '@/types'
 import { useDict } from '@/composables/useDict'
-import { formatTime, fullAddress, money } from '@/utils/format'
-import { ITEM_AFTERSALE_STATUS, ORDER_STATUS, ORDER_TYPE, PAY_TYPE, toMap } from '@/utils/constants'
+import { formatTime, fullAddress, maskMobile, money } from '@/utils/format'
+import { ITEM_AFTERSALE_STATUS, LOGISTICS_STATE, ORDER_STATUS, ORDER_TYPE, PAY_TYPE, toMap } from '@/utils/constants'
 import { promptText, toast } from '@/utils/message'
 import PageHeader from '@/components/PageHeader.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -23,11 +23,50 @@ async function load() {
   loading.value = true
   try {
     order.value = await orderApi.detail(id.value)
+    showMobile.value = false
+    if (order.value?.deliveryNo) loadLogistics()
+    else logistics.value = null
   } finally {
     loading.value = false
   }
 }
 onMounted(load)
+
+// ---------- 物流轨迹 ----------
+const logistics = ref<Logistics | null>(null)
+const logisticsLoading = ref(false)
+const logisticsError = ref('')
+const tracesExpanded = ref(false)
+const TRACE_FOLD = 5
+
+async function loadLogistics() {
+  if (!order.value) return
+  logisticsLoading.value = true
+  logisticsError.value = ''
+  try {
+    logistics.value = await orderApi.logistics(order.value.id)
+  } catch (e) {
+    logistics.value = null
+    logisticsError.value = (e as Error).message || '物流信息暂时无法查询，请稍后再试'
+  } finally {
+    logisticsLoading.value = false
+  }
+}
+
+const visibleTraces = computed(() => {
+  const t = logistics.value?.traces || []
+  return tracesExpanded.value ? t : t.slice(0, TRACE_FOLD)
+})
+
+function copyText(text: string) {
+  navigator.clipboard?.writeText(text).then(
+    () => toast.success('已复制'),
+    () => toast.warning('复制失败，请手动选择复制'),
+  )
+}
+
+// ---------- 买家手机号：默认脱敏，与列表一致 ----------
+const showMobile = ref(false)
 
 const statusMap = toMap(ORDER_STATUS)
 const payTypeMap = toMap(PAY_TYPE)
@@ -96,6 +135,14 @@ const priceSaving = ref(false)
 const priceForm = reactive({ adjustAmount: 0 })
 const basePay = computed(() => (order.value ? Number(order.value.payAmount) - Number(order.value.adjustAmount || 0) : 0))
 const newPay = computed(() => Math.round((basePay.value + Number(priceForm.adjustAmount || 0)) * 100) / 100)
+/** 改价下限：运费 + 0.01 × 商品件数（每件至少分摊 0.01） */
+const itemCount = computed(() => (order.value?.items || []).reduce((n, i) => n + Number(i.quantity || 0), 0))
+const minPay = computed(() => Math.round((Number(order.value?.freightAmount || 0) + 0.01 * Math.max(1, itemCount.value)) * 100) / 100)
+const priceError = computed(() =>
+  newPay.value < minPay.value
+    ? `调整后应付不能低于 ${money(minPay.value)}（运费 ${money(order.value?.freightAmount)} + 每件商品至少 ¥0.01 × ${itemCount.value} 件）`
+    : '',
+)
 
 function openPrice() {
   priceForm.adjustAmount = Number(order.value?.adjustAmount || 0)
@@ -104,7 +151,7 @@ function openPrice() {
 
 async function savePrice() {
   if (!order.value) return
-  if (newPay.value < 0.01) return toast.warning('调整后实付金额不能低于 ¥0.01')
+  if (priceError.value) return toast.warning(priceError.value)
   priceSaving.value = true
   try {
     await orderApi.adjustPrice(order.value.id, priceForm.adjustAmount)
@@ -187,10 +234,10 @@ function logTitle(log: { toStatus?: string; remark?: string }) {
           <div class="desc-grid">
             <div class="desc-item"><span class="desc-item__label">订单编号</span><span class="desc-item__value mono">{{ order.orderNo }}</span></div>
             <div class="desc-item"><span class="desc-item__label">订单类型</span><span class="desc-item__value">{{ toMap(ORDER_TYPE)[order.orderType]?.label || order.orderType }}</span></div>
-            <div class="desc-item"><span class="desc-item__label">买家</span><span class="desc-item__value">{{ order.member?.nickname || order.memberNickname || '-' }} <span class="text-secondary">{{ order.member?.mobile }}</span></span></div>
+            <div class="desc-item"><span class="desc-item__label">买家</span><span class="desc-item__value">{{ order.member?.nickname || order.memberNickname || '-' }} <span class="text-secondary">{{ maskMobile(order.member?.mobile) }}</span></span></div>
             <div class="desc-item"><span class="desc-item__label">支付方式</span><span class="desc-item__value">{{ order.payType ? payTypeMap[order.payType]?.label || order.payType : '未支付' }}</span></div>
             <div class="desc-item"><span class="desc-item__label">支付时间</span><span class="desc-item__value">{{ formatTime(order.payTime) }}</span></div>
-            <div class="desc-item"><span class="desc-item__label">物流</span><span class="desc-item__value">{{ order.deliveryCompany ? `${order.deliveryCompany} ${order.deliveryNo}` : '-' }}</span></div>
+            <div class="desc-item"><span class="desc-item__label">物流</span><span class="desc-item__value">{{ order.deliveryCompany ? `${logistics?.companyName || order.deliveryCompany} ${order.deliveryNo}` : '-' }}</span></div>
             <div class="desc-item"><span class="desc-item__label">买家留言</span><span class="desc-item__value">{{ order.remark || '-' }}</span></div>
             <div class="desc-item">
               <span class="desc-item__label">商家备注</span>
@@ -203,7 +250,13 @@ function logTitle(log: { toStatus?: string; remark?: string }) {
           <div class="receiver">
             <div class="receiver__icon"><el-icon><Location /></el-icon></div>
             <div>
-              <div class="receiver__name">{{ order.receiverName }} <span class="mono">{{ order.receiverMobile }}</span></div>
+              <div class="receiver__name">
+                {{ order.receiverName }}
+                <span class="mono">{{ showMobile ? order.receiverMobile : maskMobile(order.receiverMobile) }}</span>
+                <el-button v-if="maskMobile(order.receiverMobile) !== order.receiverMobile" link type="primary" size="small" @click="showMobile = !showMobile">
+                  {{ showMobile ? '隐藏' : '显示' }}
+                </el-button>
+              </div>
               <div class="receiver__addr">{{ fullAddress(order) }}</div>
             </div>
           </div>
@@ -216,6 +269,50 @@ function logTitle(log: { toStatus?: string; remark?: string }) {
           <div class="amount-row amount-row--total">
             <span>实付金额</span><span class="money money--danger">{{ money(order.payAmount) }}</span>
           </div>
+        </div>
+      </div>
+
+      <div v-if="order.deliveryNo" v-loading="logisticsLoading" class="card">
+        <h3 class="card-title">
+          <span class="card-title__text">物流跟踪</span>
+          <el-button link type="primary" :icon="'Refresh'" :loading="logisticsLoading" @click="loadLogistics">刷新</el-button>
+        </h3>
+        <div class="ship-head">
+          <div class="ship-head__icon"><el-icon><Van /></el-icon></div>
+          <div class="ship-head__main">
+            <div class="ship-head__title">
+              {{ logistics?.companyName || order.deliveryCompany }}
+              <span class="mono">{{ logistics?.trackingNo || order.deliveryNo }}</span>
+              <el-button link type="primary" size="small" :icon="'DocumentCopy'" @click="copyText(logistics?.trackingNo || order.deliveryNo)">复制单号</el-button>
+            </div>
+            <div class="text-secondary sub">发货时间 {{ formatTime(order.deliveryTime) }}</div>
+          </div>
+          <StatusTag v-if="logistics?.state" :value="logistics.state" :options="LOGISTICS_STATE" :label="logistics.stateText || undefined" />
+        </div>
+        <el-timeline v-if="logistics?.traces?.length" class="traces">
+          <el-timeline-item
+            v-for="(t, i) in visibleTraces"
+            :key="i"
+            :timestamp="t.time"
+            placement="top"
+            :type="i === 0 ? 'primary' : undefined"
+            :hollow="i !== 0"
+            :size="i === 0 ? 'large' : 'normal'"
+          >
+            <div class="trace" :class="{ 'is-latest': i === 0 }">
+              {{ t.context }}<span v-if="t.location" class="text-secondary"> · {{ t.location }}</span>
+            </div>
+          </el-timeline-item>
+        </el-timeline>
+        <div v-if="(logistics?.traces?.length || 0) > TRACE_FOLD" class="trace-more">
+          <el-button link type="primary" @click="tracesExpanded = !tracesExpanded">
+            {{ tracesExpanded ? '收起' : `展开全部 ${logistics!.traces.length} 条轨迹` }}
+          </el-button>
+        </div>
+        <div v-else-if="!logisticsLoading && !logistics?.traces?.length" class="trace-empty">
+          <el-icon><InfoFilled /></el-icon>
+          {{ logistics?.message || logisticsError || '暂无物流轨迹' }}
+          <router-link v-if="logistics?.message === '未开通物流查询'" to="/system/config?group=logistics" class="inline-link">去开通</router-link>
         </div>
       </div>
 
@@ -272,12 +369,14 @@ function logTitle(log: { toStatus?: string; remark?: string }) {
           <div class="form-tip">负数为减价，正数为加价</div>
         </el-form-item>
         <el-form-item label="调整后实付">
-          <span class="money" :class="newPay < 0.01 ? 'text-danger' : 'money--danger'" style="font-size: 18px">{{ money(newPay) }}</span>
+          <span class="money" :class="priceError ? 'text-danger' : 'money--danger'" style="font-size: 18px">{{ money(newPay) }}</span>
+          <div v-if="priceError" class="price-error">{{ priceError }}</div>
+          <div v-else class="form-tip" style="width: 100%">最低可改至 {{ money(minPay) }}</div>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="priceVisible = false">取消</el-button>
-        <el-button type="primary" :loading="priceSaving" :disabled="newPay < 0.01" @click="savePrice">确认改价</el-button>
+        <el-button type="primary" :loading="priceSaving" :disabled="!!priceError" @click="savePrice">确认改价</el-button>
       </template>
     </el-dialog>
 
@@ -347,6 +446,77 @@ function logTitle(log: { toStatus?: string; remark?: string }) {
 }
 .logs {
   padding: 4px 0 0 4px;
+}
+.sub {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.price-error {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-danger);
+}
+.ship-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  border-radius: var(--app-radius);
+  background: var(--app-card-bg-muted);
+  &__icon {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: var(--el-color-primary);
+    background: var(--app-primary-soft);
+  }
+  &__main {
+    flex: 1;
+    min-width: 0;
+  }
+  &__title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-weight: 600;
+    color: var(--app-text);
+  }
+}
+.traces {
+  padding: 0 0 0 4px;
+}
+.trace {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-text-regular);
+  &.is-latest {
+    color: var(--app-text);
+    font-weight: 600;
+  }
+}
+.trace-more {
+  padding-left: 28px;
+}
+.trace-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+.inline-link {
+  color: var(--el-color-primary);
+  margin-left: 4px;
 }
 .log {
   font-size: 13px;

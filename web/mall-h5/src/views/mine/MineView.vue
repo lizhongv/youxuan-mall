@@ -31,8 +31,9 @@ function go(name: string, query?: Record<string, string>) {
   router.push({ name, query })
 }
 
-function badge(n?: number) {
-  return n && n > 0 ? (n > 99 ? '99+' : n) : undefined
+function badge(v?: number | string) {
+  const n = Number(v || 0)
+  return n > 0 ? (n > 99 ? '99+' : n) : undefined
 }
 
 const orderEntries = computed(() => [

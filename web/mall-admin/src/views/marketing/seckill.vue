@@ -220,7 +220,7 @@ const disabledPast = (d: Date) => d.getTime() < Date.now() - 86400000
             <el-button link type="danger" :disabled="row.state === 'ONGOING'" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无秒杀活动" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无秒杀活动" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>

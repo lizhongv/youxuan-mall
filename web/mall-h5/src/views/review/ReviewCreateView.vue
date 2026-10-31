@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { fmtSpec } from '@/utils'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showSuccessToast, showToast } from 'vant'
@@ -7,6 +8,8 @@ import { getOrder } from '@/api/order'
 import { createReview } from '@/api/review'
 import NavBar from '@/components/NavBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import { errorMessage } from '@/api/request'
+import LoadState from '@/components/LoadState.vue'
 import ImageUploader from '@/components/ImageUploader.vue'
 
 const route = useRoute()
@@ -27,14 +30,20 @@ const anonymous = ref(false)
 const RATING_TEXT = ['', '非常差', '差', '一般', '好', '非常好']
 const ratingText = computed(() => RATING_TEXT[rating.value] || '')
 
-onMounted(async () => {
+const loadError = ref('')
+async function load() {
+  loading.value = true
+  loadError.value = ''
   try {
     order.value = await getOrder(orderId)
     item.value = order.value.items.find((i) => i.id === itemId) || null
+  } catch (e) {
+    loadError.value = errorMessage(e)
   } finally {
     loading.value = false
   }
-})
+}
+onMounted(load)
 
 async function submit() {
   if (!item.value) return
@@ -74,15 +83,16 @@ async function submit() {
 <template>
   <div class="page rc">
     <NavBar title="发表评价" />
-    <van-loading v-if="loading" class="rc__loading" vertical>加载中...</van-loading>
-    <EmptyState v-else-if="!item" description="订单商品不存在" />
+    <LoadState v-if="!item" :loading="loading" :error="loadError" @retry="load">
+      <EmptyState description="订单商品不存在" />
+    </LoadState>
     <template v-else>
       <div class="card">
         <div class="rc__goods">
           <van-image :src="item.pic" width="56" height="56" radius="6" fit="cover" />
           <div class="rc__goods-body">
             <div class="ellipsis-2">{{ item.goodsName }}</div>
-            <div v-if="item.specText" class="rc__spec ellipsis">{{ item.specText }}</div>
+            <div v-if="item.specText" class="rc__spec ellipsis">{{ fmtSpec(item.specText) }}</div>
           </div>
         </div>
         <div class="rc__rate">

@@ -5,15 +5,19 @@ import { showConfirmDialog, showImagePreview, showSuccessToast, showToast } from
 import type { Aftersale } from '@/types'
 import { cancelAftersale, fillReturn, getAftersale } from '@/api/aftersale'
 import { AFTERSALE_STATUS_TEXT, AFTERSALE_TYPE_TEXT, EXPRESS_COMPANIES } from '@/utils/dict'
-import { copyText, fmtTime, money } from '@/utils'
+import { copyText, fmtSpec, fmtTime, money } from '@/utils'
 import NavBar from '@/components/NavBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadState from '@/components/LoadState.vue'
+import { useDict } from '@/composables/useDict'
+import { errorMessage } from '@/api/request'
 
 const route = useRoute()
 const router = useRouter()
 const id = route.params.id as string
 const data = ref<Aftersale | null>(null)
 const loading = ref(true)
+const loadError = ref('')
 
 const returnShow = ref(false)
 const companyShow = ref(false)
@@ -22,8 +26,11 @@ const returnNo = ref('')
 const submitting = ref(false)
 
 async function load() {
+  loadError.value = ''
   try {
     data.value = await getAftersale(id)
+  } catch (e) {
+    loadError.value = errorMessage(e)
   } finally {
     loading.value = false
   }
@@ -38,10 +45,10 @@ const steps = computed(() => {
   if (a.status === 'CANCELLED') return { list: ['提交申请', '已撤销'], active: 1 }
   if (a.type === 'REFUND') {
     const list = ['提交申请', '商家审核', '退款成功']
-    return { list, active: a.status === 'REFUNDED' ? 2 : 1 }
+    return { list, active: a.status === 'REFUNDED' || a.status === 'REFUNDING' ? 2 : 1 }
   }
   const list = ['提交申请', '商家审核', '寄回商品', '商家收货', '退款成功']
-  const map: Record<string, number> = { APPLYING: 1, WAIT_RETURN: 2, RETURNING: 3, REFUNDED: 4 }
+  const map: Record<string, number> = { APPLYING: 1, WAIT_RETURN: 2, RETURNING: 3, REFUNDING: 4, REFUNDED: 4 }
   return { list, active: map[a.status] ?? 0 }
 })
 
@@ -53,6 +60,8 @@ const statusDesc = computed(() => {
       return '商家已同意退货，请寄回商品并填写物流单号'
     case 'RETURNING':
       return '商品寄回中，商家确认收货后将为您退款'
+    case 'REFUNDING':
+      return '商家已同意退款，退款处理中，预计 1-3 个工作日原路退回'
     case 'REFUNDED':
       return '退款已原路退回，请注意查收'
     case 'REJECTED':
@@ -65,7 +74,20 @@ const statusDesc = computed(() => {
 })
 
 const canCancel = computed(() => data.value && ['APPLYING', 'WAIT_RETURN'].includes(data.value.status))
-const companyActions = EXPRESS_COMPANIES.map((name) => ({ name }))
+/** 快递公司取字典 express_company（label 中文名），失败时用内置列表 */
+const companies = useDict('express_company', EXPRESS_COMPANIES)
+const companyActions = computed(() => [...companies.value.map((c) => ({ name: c.label })), { name: '其他' }])
+
+/** 商家退货地址（退货退款、待寄回及之后返回）；缺失项为空串 */
+const returnAddr = computed(() => {
+  const r = data.value?.returnAddress
+  if (!r || (!r.name && !r.mobile && !r.address)) return null
+  return r
+})
+const returnAddrText = computed(() => {
+  const r = returnAddr.value
+  return r ? [r.name, r.mobile, r.address].filter(Boolean).join(' ') : ''
+})
 
 async function cancel() {
   try {
@@ -105,8 +127,9 @@ function onCompany(a: { name: string }) {
 <template>
   <div class="page asd">
     <NavBar title="售后详情" />
-    <van-loading v-if="loading" class="asd__loading" vertical>加载中...</van-loading>
-    <EmptyState v-else-if="!data" description="售后单不存在" />
+    <LoadState v-if="!data" :loading="loading" :error="loadError" @retry="(loading = true), load()">
+      <EmptyState description="售后单不存在" />
+    </LoadState>
     <template v-else>
       <div class="asd__head">
         <div class="asd__status">{{ data.statusText || AFTERSALE_STATUS_TEXT[data.status] }}</div>
@@ -123,6 +146,18 @@ function onCompany(a: { name: string }) {
         <div class="asd__label">商家处理意见</div>
         <div class="asd__remark-text">{{ data.auditRemark }}</div>
         <div v-if="data.auditTime" class="asd__time">{{ fmtTime(data.auditTime) }}</div>
+      </div>
+
+      <!-- 商家退货地址 -->
+      <div v-if="returnAddr" class="card asd__raddr">
+        <div class="asd__raddr-head">
+          <span class="asd__label">商家退货地址</span>
+          <span class="asd__copy" @click="copyText(returnAddrText)">一键复制</span>
+        </div>
+        <div class="asd__raddr-user">
+          {{ returnAddr.name || '-' }}<span>{{ returnAddr.mobile }}</span>
+        </div>
+        <div class="asd__raddr-detail">{{ returnAddr.address || '商家暂未填写退货地址，请联系客服' }}</div>
       </div>
 
       <!-- 待寄回 -->
@@ -144,7 +179,7 @@ function onCompany(a: { name: string }) {
           <van-image :src="data.item.pic" width="64" height="64" radius="6" fit="cover" />
           <div class="asd__goods-body">
             <div class="ellipsis-2">{{ data.item.goodsName }}</div>
-            <div class="asd__spec ellipsis">{{ data.item.specText }} x{{ data.quantity || data.item.quantity }}</div>
+            <div class="asd__spec ellipsis">{{ fmtSpec(data.item.specText) }} x{{ data.quantity || data.item.quantity }}</div>
           </div>
         </div>
         <div class="asd__rows asd__rows--inner">
@@ -227,6 +262,29 @@ function onCompany(a: { name: string }) {
 .asd {
   &__loading {
     padding: 60px 0;
+  }
+  &__raddr-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  &__raddr-user {
+    margin-top: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    span {
+      margin-left: 8px;
+      font-size: 13px;
+      font-weight: normal;
+      color: $text-2;
+    }
+  }
+  &__raddr-detail {
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 19px;
+    color: $text-2;
+    word-break: break-all;
   }
   &__head {
     padding: 20px 20px 24px;

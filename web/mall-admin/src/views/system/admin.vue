@@ -152,7 +152,7 @@ async function submit() {
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="角色" min-width="180">
+        <el-table-column label="角色" min-width="150">
           <template #default="{ row }: { row: any }">
             <div class="roles">
               <el-tag v-for="r in row.roleNames || []" :key="r" size="small" type="primary" effect="light">{{ r }}</el-tag>
@@ -160,15 +160,21 @@ async function submit() {
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="手机号" prop="mobile" width="130" />
-        <el-table-column label="邮箱" prop="email" min-width="170" show-overflow-tooltip />
+        <el-table-column label="手机号" width="130">
+          <template #default="{ row }: { row: any }">{{ row.mobile || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="邮箱" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }: { row: any }">{{ row.email || '-' }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }: { row: any }">
             <el-switch :model-value="row.status === 1" :disabled="!canEdit || isProtected(row)" @change="toggleStatus(row)" />
           </template>
         </el-table-column>
-        <el-table-column label="最近登录" width="160">
-          <template #default="{ row }: { row: any }"><span class="text-secondary">{{ formatTime(row.lastLoginAt) }}</span></template>
+        <el-table-column label="最近登录" width="140">
+          <template #default="{ row }: { row: any }">
+            <span class="text-secondary" :title="formatTime(row.lastLoginAt)">{{ row.lastLoginAt ? formatTime(row.lastLoginAt, 'YYYY-MM-DD HH:mm') : '-' }}</span>
+          </template>
         </el-table-column>
         <el-table-column v-if="canEdit" label="操作" width="200" fixed="right">
           <template #default="{ row }: { row: any }">
@@ -177,7 +183,7 @@ async function submit() {
             <el-button link type="danger" :disabled="isProtected(row)" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无管理员" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无管理员" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>

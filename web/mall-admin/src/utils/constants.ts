@@ -37,10 +37,66 @@ export const AFTERSALE_STATUS: EnumOption[] = [
   { value: 'APPLYING', label: '待审核', tone: 'warning' },
   { value: 'WAIT_RETURN', label: '待买家退货', tone: 'primary' },
   { value: 'RETURNING', label: '退货中', tone: 'cyan' },
+  { value: 'REFUNDING', label: '退款中', tone: 'purple' },
   { value: 'REFUNDED', label: '已退款', tone: 'success' },
   { value: 'REJECTED', label: '已拒绝', tone: 'danger' },
   { value: 'CANCELLED', label: '已撤销', tone: 'info' },
 ]
+
+export const PAY_CHANNEL: EnumOption[] = [
+  { value: 'WECHAT', label: '微信支付', tone: 'success' },
+  { value: 'ALIPAY', label: '支付宝', tone: 'primary' },
+  { value: 'BALANCE', label: '余额支付', tone: 'warning' },
+  { value: 'MOCK', label: '模拟支付', tone: 'info' },
+]
+
+export const PAY_TRADE_TYPE: EnumOption[] = [
+  { value: 'WECHAT_JSAPI', label: '公众号支付' },
+  { value: 'WECHAT_H5', label: 'H5 支付' },
+  { value: 'ALIPAY_WAP', label: '手机网站支付' },
+]
+
+export const PAYMENT_STATUS: EnumOption[] = [
+  { value: 'WAITING', label: '待支付', tone: 'warning' },
+  { value: 'SUCCESS', label: '支付成功', tone: 'success' },
+  { value: 'CLOSED', label: '已关闭', tone: 'info' },
+  { value: 'REFUNDED', label: '已退款', tone: 'purple' },
+  { value: 'REFUNDED_AFTER_CLOSE', label: '关单后到账已退', tone: 'danger' },
+]
+
+export const CHARGE_TYPE: EnumOption[] = [
+  { value: 'BY_COUNT', label: '按件数', tone: 'primary' },
+  { value: 'BY_WEIGHT', label: '按重量', tone: 'purple' },
+]
+
+/** 物流状态 */
+export const LOGISTICS_STATE: EnumOption[] = [
+  { value: 'NONE', label: '暂无物流信息', tone: 'info' },
+  { value: 'COLLECTED', label: '已揽收', tone: 'primary' },
+  { value: 'IN_TRANSIT', label: '运输中', tone: 'primary' },
+  { value: 'DELIVERING', label: '派送中', tone: 'cyan' },
+  { value: 'SIGNED', label: '已签收', tone: 'success' },
+  { value: 'PROBLEM', label: '疑难件', tone: 'danger' },
+  { value: 'RETURN_SIGNED', label: '退件签收', tone: 'warning' },
+  { value: 'RETURNING', label: '退回中', tone: 'warning' },
+  { value: 'TRANSFERRED', label: '转投中', tone: 'primary' },
+  { value: 'CUSTOMS', label: '清关中', tone: 'primary' },
+  { value: 'REJECTED', label: '已拒签', tone: 'danger' },
+]
+
+/** 全国 34 个省级行政区（运费模板地区选择），按大区分组 */
+export const PROVINCE_GROUPS: { region: string; items: string[] }[] = [
+  { region: '华东', items: ['上海市', '江苏省', '浙江省', '安徽省', '江西省', '山东省', '福建省'] },
+  { region: '华北', items: ['北京市', '天津市', '河北省', '山西省', '内蒙古自治区'] },
+  { region: '华中', items: ['河南省', '湖北省', '湖南省'] },
+  { region: '华南', items: ['广东省', '广西壮族自治区', '海南省'] },
+  { region: '东北', items: ['辽宁省', '吉林省', '黑龙江省'] },
+  { region: '西南', items: ['重庆市', '四川省', '贵州省', '云南省', '西藏自治区'] },
+  { region: '西北', items: ['陕西省', '甘肃省', '青海省', '宁夏回族自治区', '新疆维吾尔自治区'] },
+  { region: '港澳台', items: ['香港特别行政区', '澳门特别行政区', '台湾省'] },
+]
+
+export const PROVINCES: string[] = PROVINCE_GROUPS.flatMap((g) => g.items)
 
 export const AFTERSALE_TYPE: EnumOption[] = [
   { value: 'REFUND', label: '仅退款', tone: 'primary' },

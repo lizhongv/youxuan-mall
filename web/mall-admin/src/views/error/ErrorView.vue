@@ -26,8 +26,10 @@ function back() {
     <h2>{{ title }}</h2>
     <p>{{ desc }}</p>
     <div class="error-view__actions">
-      <el-button @click="back">返回上一页</el-button>
-      <el-button type="primary" @click="router.replace('/')">回到首页</el-button>
+      <slot name="actions">
+        <el-button @click="back">返回上一页</el-button>
+        <el-button type="primary" @click="router.replace('/')">回到首页</el-button>
+      </slot>
     </div>
   </div>
 </template>

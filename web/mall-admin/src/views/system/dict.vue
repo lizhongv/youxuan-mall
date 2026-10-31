@@ -141,11 +141,11 @@ async function remove(row: Dict) {
         </div>
       </div>
       <el-table v-loading="loading" :data="list" row-key="id">
-        <el-table-column label="字典类型" min-width="150">
+        <el-table-column label="字典类型" min-width="140">
           <template #default="{ row }: { row: any }"><span class="mono">{{ row.dictType }}</span></template>
         </el-table-column>
         <el-table-column label="标签" prop="label" min-width="130" />
-        <el-table-column label="值" min-width="130">
+        <el-table-column label="值" min-width="125">
           <template #default="{ row }: { row: any }"><span class="mono">{{ row.value }}</span></template>
         </el-table-column>
         <el-table-column label="排序" prop="sort" width="70" align="center" />
@@ -162,7 +162,7 @@ async function remove(row: Dict) {
             <el-button link type="danger" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无字典数据" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无字典数据" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </section>

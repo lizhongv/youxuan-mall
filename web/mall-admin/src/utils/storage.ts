@@ -8,6 +8,9 @@ export const StorageKey = {
   theme: `${PREFIX}theme`,
   collapsed: `${PREFIX}sidebar-collapsed`,
   tabs: `${PREFIX}tabs`,
+  catPanel: `${PREFIX}goods-cat-panel`,
+  /** 多标签页刷新令牌互斥锁（不支持 Web Locks API 时的回退） */
+  refreshLock: `${PREFIX}refresh-lock`,
 } as const
 
 function safe<T>(fn: () => T, fallback: T): T {

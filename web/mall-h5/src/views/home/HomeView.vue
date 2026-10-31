@@ -10,7 +10,7 @@ import Price from '@/components/Price.vue'
 import CountDown from '@/components/CountDown.vue'
 import GoodsWaterfall from '@/components/GoodsWaterfall.vue'
 import EmptyState from '@/components/EmptyState.vue'
-import { parseTime } from '@/utils'
+import { num, parseTime } from '@/utils'
 
 defineOptions({ name: 'HomeView' })
 
@@ -209,7 +209,10 @@ const noticeList = computed(() => home.value?.notices || [])
                 <van-image :src="s.goodsPic" width="100%" height="100%" fit="cover" lazy-load radius="6" />
                 <span v-if="s.state === 'NOT_STARTED'" class="sk-item__badge">即将开抢</span>
               </div>
-              <Price :value="s.seckillPrice" size="sm" />
+              <div class="sk-item__price">
+                <Price :value="s.seckillPrice" size="sm" />
+                <Price v-if="num(s.price ?? s.originalPrice) > num(s.seckillPrice)" :value="s.price ?? s.originalPrice" strike />
+              </div>
               <div class="sk-item__progress">
                 <div class="sk-item__bar" :style="{ width: percent(s) + '%' }" />
                 <span class="sk-item__percent">已抢{{ percent(s) }}%</span>
@@ -551,6 +554,17 @@ const noticeList = computed(() => home.value?.notices || [])
   }
 }
 
+.sk-item__price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 3px;
+  height: 18px;
+  overflow: hidden;
+  :deep(.price-strike) {
+    line-height: 18px;
+  }
+}
 .sk-item {
   flex: 0 0 96px;
   width: 96px;

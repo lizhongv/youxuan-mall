@@ -286,7 +286,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/app/coupon/{couponId}/receive` | 领取（校验库存、限领、状态） |
-| GET | `/app/coupon/mine?status=UNUSED\|USED\|EXPIRED` | `[{id, couponId, name, type, threshold, amount, discount, maxAmount, scope, startAt, endAt, status, description}]` |
+| GET | `/app/coupon/mine?status=UNUSED\|USED\|EXPIRED` | `[{id, couponId, name, type, threshold, amount, discount, maxAmount, scope, scopeIds, startAt, endAt, status, description}]` |
 
 ### 2.5 购物车 `/app/cart`
 

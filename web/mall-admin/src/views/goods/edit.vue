@@ -3,7 +3,11 @@ import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { CascaderOption, FormInstance, FormRules } from 'element-plus'
 import { brandApi, categoryApi, goodsApi } from '@/api/goods'
-import type { Brand, Category, GoodsForm, Sku, SpecItem } from '@/types'
+import { freightApi } from '@/api/trade'
+import type { Brand, Category, FreightTemplateOption, GoodsForm, Sku, SpecItem } from '@/types'
+import { ApiError } from '@/utils/request'
+import { CHARGE_TYPE } from '@/utils/constants'
+import StatusTag from '@/components/StatusTag.vue'
 import { useUserStore } from '@/stores/user'
 import { useTabsStore } from '@/stores/tabs'
 import { clone } from '@/utils/format'
@@ -25,7 +29,7 @@ const readonly = computed(() => !user.hasPerm('goods:goods:edit'))
 const MAX_SPECS = 3
 const MAX_SPEC_VALUES = 20
 
-const emptySku = (): Sku => ({ id: null, specValues: [], code: '', pic: '', price: 0, originalPrice: 0, stock: 0 })
+const emptySku = (): Sku => ({ id: null, specValues: [], code: '', pic: '', price: 0, originalPrice: 0, stock: 0, weight: 0 })
 
 function emptyForm(): GoodsForm {
   return {
@@ -44,6 +48,7 @@ function emptyForm(): GoodsForm {
     isNew: 0,
     isHot: 0,
     isRecommend: 0,
+    freightTemplateId: '',
     specItems: [],
     skus: [emptySku()],
   }
@@ -58,6 +63,18 @@ const specMode = ref<'single' | 'multi'>('single')
 const single = reactive<Sku>(emptySku())
 const categories = shallowRef<Category[]>([])
 const brands = shallowRef<Brand[]>([])
+const freightOptions = shallowRef<FreightTemplateOption[]>([])
+const defaultFreight = computed(() => freightOptions.value.find((t) => Number(t.isDefault) === 1))
+const selectedFreight = computed(() => freightOptions.value.find((t) => t.id === form.freightTemplateId))
+/** 是否按重量计费：决定重量是否必填提示 */
+const weightMatters = computed(() => (selectedFreight.value || defaultFreight.value)?.chargeType === 'BY_WEIGHT')
+/**
+ * 库存差量：详情接口返回的各 SKU 库存（按 SKU ID），保存时作为 originStock 原样回传，
+ * 服务端按「目标库存 − originStock」做差量更新，编辑期间的下单扣减不会被覆盖。
+ */
+const originStocks = new Map<string, number>()
+/** 批量设置后强制重建 SKU 表格，保证数字输入框按精度重新格式化 */
+const skuTableKey = ref(0)
 
 const rules: FormRules = {
   categoryId: [{ required: true, message: '请选择商品类目', trigger: 'change' }],
@@ -137,16 +154,18 @@ function switchMode(mode: string | number | boolean | undefined) {
 }
 
 // 批量设置
-const batch = reactive<{ price?: number; originalPrice?: number; stock?: number }>({})
+const batch = reactive<{ price?: number; originalPrice?: number; stock?: number; weight?: number }>({})
 function applyBatch() {
-  if (batch.price === undefined && batch.originalPrice === undefined && batch.stock === undefined) {
+  if (batch.price == null && batch.originalPrice == null && batch.stock == null && batch.weight == null) {
     return toast.warning('请先填写要批量设置的值')
   }
   form.skus.forEach((s) => {
-    if (batch.price !== undefined) s.price = batch.price
-    if (batch.originalPrice !== undefined) s.originalPrice = batch.originalPrice
-    if (batch.stock !== undefined) s.stock = batch.stock
+    if (batch.price != null) s.price = batch.price
+    if (batch.originalPrice != null) s.originalPrice = batch.originalPrice
+    if (batch.stock != null) s.stock = batch.stock
+    if (batch.weight != null) s.weight = batch.weight
   })
+  skuTableKey.value++
   toast.success(`已应用到 ${form.skus.length} 个 SKU`)
 }
 
@@ -186,15 +205,19 @@ function scrollTo(key: string) {
 onMounted(async () => {
   loading.value = true
   try {
-    const [cats, bs] = await Promise.allSettled([categoryApi.tree(), brandApi.list()])
+    const [cats, bs, fts] = await Promise.allSettled([categoryApi.tree(), brandApi.list(), freightApi.list()])
     if (cats.status === 'fulfilled') categories.value = cats.value || []
     if (bs.status === 'fulfilled') brands.value = bs.value || []
+    if (fts.status === 'fulfilled') freightOptions.value = fts.value || []
     if (isEdit.value) {
       const data = await goodsApi.detail(id.value)
+      originStocks.clear()
+      ;(data.skus || []).forEach((s) => s.id && originStocks.set(String(s.id), Number(s.stock) || 0))
       Object.assign(form, emptyForm(), data, {
         album: data.album || [],
+        freightTemplateId: data.freightTemplateId || '',
         specItems: data.specItems || [],
-        skus: data.skus?.length ? data.skus : [emptySku()],
+        skus: data.skus?.length ? data.skus.map((s) => ({ ...s, weight: Number(s.weight) || 0 })) : [emptySku()],
       })
       if (form.specItems.length) {
         specMode.value = 'multi'
@@ -230,21 +253,27 @@ function buildPayload(): GoodsForm {
   } else {
     data.specItems = validSpecs.value.map((s: SpecItem) => ({ name: s.name.trim(), values: [...s.values] }))
   }
-  data.skus = data.skus.map((s) => ({
-    ...s,
-    price: Number(s.price) || 0,
-    originalPrice: Number(s.originalPrice) || 0,
-    stock: Math.max(0, Math.floor(Number(s.stock) || 0)),
-  }))
+  data.freightTemplateId = data.freightTemplateId || null
+  data.skus = data.skus.map((s) => {
+    const sku: Sku = {
+      ...s,
+      price: Number(s.price) || 0,
+      originalPrice: Number(s.originalPrice) || 0,
+      stock: Math.max(0, Math.floor(Number(s.stock) || 0)),
+      weight: Math.round((Number(s.weight) || 0) * 1000) / 1000,
+    }
+    delete sku.originStock
+    // 已有 SKU 回传打开编辑页时的库存（差量调整）；新增 SKU 不传
+    if (s.id && originStocks.has(String(s.id))) sku.originStock = originStocks.get(String(s.id))
+    return sku
+  })
   return data
 }
 
 async function save() {
   const ok = await formRef.value?.validate().catch(() => false)
-  if (!ok) {
-    scrollTo('base')
-    return
-  }
+  // scroll-to-error 会滚动到第一个校验失败的字段
+  if (!ok) return toast.warning('请完善标红的必填项')
   const err = validateSkus()
   if (err) {
     scrollTo('spec')
@@ -257,9 +286,33 @@ async function save() {
     else await goodsApi.create(payload)
     toast.success(isEdit.value ? '商品已保存' : '商品已发布')
     closeAndBack()
+  } catch (e) {
+    // 库存已被订单占用（目标库存 − originStock 后会小于 0）：引导载入最新库存
+    if (isEdit.value && e instanceof ApiError && e.message.includes('库存')) {
+      if (await confirm('库存在你编辑期间已被订单占用，是否载入最新库存？载入后请重新确认库存再保存。', '库存已变化', 'info')) {
+        await reloadStocks()
+      }
+    }
   } finally {
     saving.value = false
   }
+}
+
+/** 只刷新 SKU 当前库存与 originStock，保留其他已编辑内容 */
+async function reloadStocks() {
+  const data = await goodsApi.detail(id.value)
+  const latest = new Map((data.skus || []).filter((s) => s.id).map((s) => [String(s.id), Number(s.stock) || 0]))
+  originStocks.clear()
+  latest.forEach((v, k) => originStocks.set(k, v))
+  const apply = (s: Sku) => {
+    if (s.id && latest.has(String(s.id))) s.stock = latest.get(String(s.id))!
+  }
+  form.skus.forEach(apply)
+  apply(single)
+  skuCache.forEach(apply)
+  skuTableKey.value++
+  scrollTo('spec')
+  toast.success('已载入最新库存')
 }
 
 function closeAndBack() {
@@ -278,7 +331,7 @@ function closeAndBack() {
       </template>
     </PageHeader>
 
-    <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" :disabled="readonly" class="goods-form" @submit.prevent>
+    <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" :disabled="readonly" scroll-to-error :scroll-into-view-options="{ block: 'center' }" class="goods-form" @submit.prevent>
       <!-- 基本信息 -->
       <section id="sec-base" class="card">
         <h3 class="card-title"><span class="card-title__text">基本信息</span></h3>
@@ -387,6 +440,16 @@ function closeAndBack() {
                 <el-input v-model="single.code" placeholder="SKU 编码（可选）" />
               </el-form-item>
             </el-col>
+            <el-col :xs="24" :sm="12" :lg="6">
+              <el-form-item label="重量（kg）">
+                <el-input-number v-model="single.weight" :min="0" :max="99999" :precision="3" :step="0.1" controls-position="right" class="w-full" />
+              </el-form-item>
+            </el-col>
+            <el-col v-if="isEdit && single.id" :xs="24" :lg="18">
+              <el-form-item label=" ">
+                <span class="form-tip" style="margin: 0">库存按差量保存：编辑期间产生的下单扣减不会被覆盖</span>
+              </el-form-item>
+            </el-col>
           </el-row>
         </template>
 
@@ -426,9 +489,10 @@ function closeAndBack() {
                 <el-input-number v-model="batch.price" :min="0" :precision="2" placeholder="销售价" :controls="false" />
                 <el-input-number v-model="batch.originalPrice" :min="0" :precision="2" placeholder="划线价" :controls="false" />
                 <el-input-number v-model="batch.stock" :min="0" :precision="0" placeholder="库存" :controls="false" />
+                <el-input-number v-model="batch.weight" :min="0" :precision="3" placeholder="重量 kg" :controls="false" />
                 <el-button type="primary" plain @click="applyBatch">应用到全部</el-button>
               </div>
-              <el-table :data="form.skus" border :span-method="spanMethod" class="sku-table" max-height="520">
+              <el-table :key="skuTableKey" :data="form.skus" border :span-method="spanMethod" class="sku-table" max-height="520">
                 <el-table-column v-for="(s, si) in validSpecs" :key="s.name" :label="s.name" min-width="100">
                   <template #default="{ row }"><b>{{ row.specValues[si] }}</b></template>
                 </el-table-column>
@@ -454,7 +518,15 @@ function closeAndBack() {
                     <el-input-number v-model="row.stock" :min="0" :precision="0" :controls="false" class="w-full" />
                   </template>
                 </el-table-column>
-                <el-table-column label="编码" min-width="150">
+                <el-table-column label="重量（kg）" min-width="110">
+                  <template #header>
+                    <span :class="{ required: weightMatters }">重量（kg）</span>
+                  </template>
+                  <template #default="{ row }">
+                    <el-input-number v-model="row.weight" :min="0" :max="99999" :precision="3" :controls="false" class="w-full" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="编码" min-width="130">
                   <template #default="{ row }"><el-input v-model="row.code" placeholder="可选" /></template>
                 </el-table-column>
               </el-table>
@@ -474,6 +546,30 @@ function closeAndBack() {
       <section id="sec-sale" class="card">
         <h3 class="card-title"><span class="card-title__text">销售设置</span></h3>
         <el-row :gutter="24">
+          <el-col :span="24">
+            <el-form-item label="运费模板" prop="freightTemplateId">
+              <el-select
+                v-model="form.freightTemplateId"
+                clearable
+                filterable
+                :placeholder="defaultFreight ? `使用默认模板（${defaultFreight.name}）` : '使用系统基础运费'"
+                class="freight-select"
+              >
+                <el-option v-for="t in freightOptions" :key="t.id" :label="t.name" :value="t.id">
+                  <div class="freight-opt">
+                    <span>{{ t.name }}</span>
+                    <el-tag v-if="Number(t.isDefault) === 1" size="small" round>默认</el-tag>
+                    <StatusTag :value="t.chargeType" :options="CHARGE_TYPE" :dot="false" class="freight-opt__type" />
+                  </div>
+                </el-option>
+              </el-select>
+              <router-link v-if="user.hasPerm('trade:freight:view')" to="/trade/freight" class="freight-link">管理运费模板</router-link>
+              <div class="form-tip" style="width: 100%">
+                不选则使用默认运费模板<template v-if="!defaultFreight">（当前没有默认模板，按「系统参数 › 交易」的基础运费与包邮门槛计算）</template>。
+                <template v-if="weightMatters">当前模板按重量计费，请在规格中填写每件重量。</template>
+              </div>
+            </el-form-item>
+          </el-col>
           <el-col :xs="24" :md="12">
             <el-form-item label="上架状态">
               <el-radio-group v-model="form.status">
@@ -519,7 +615,29 @@ function closeAndBack() {
 
 <style scoped lang="scss">
 .goods-edit {
-  padding-bottom: 8px;
+  /* 给底部悬浮操作栏留出空间，避免遮挡最后几行 */
+  padding-bottom: 24px;
+}
+.freight-select {
+  width: 360px;
+  max-width: 100%;
+}
+.freight-link {
+  margin-left: 12px;
+  font-size: 13px;
+  color: var(--el-color-primary);
+  text-decoration: none;
+  &:hover {
+    text-decoration: underline;
+  }
+}
+.freight-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  &__type {
+    margin-left: auto;
+  }
 }
 .goods-form {
   display: flex;

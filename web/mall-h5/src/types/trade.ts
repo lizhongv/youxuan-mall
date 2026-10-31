@@ -62,7 +62,55 @@ export interface SubmitResult {
 export type OrderStatus = 'PENDING_PAY' | 'PENDING_DELIVERY' | 'DELIVERED' | 'COMPLETED' | 'CANCELLED'
 /** 订单列表筛选：额外支持 TO_REVIEW（已完成未评价） */
 export type OrderQueryStatus = OrderStatus | 'TO_REVIEW' | ''
-export type PayType = 'BALANCE' | 'MOCK'
+/** 发起支付方式（收银台渠道 type） */
+export type PayType = 'BALANCE' | 'WECHAT_JSAPI' | 'WECHAT_H5' | 'ALIPAY_WAP' | 'MOCK'
+
+/** 收银台渠道 */
+export interface PayChannel {
+  type: PayType
+  name: string
+  /** balance / wechat / alipay / mock */
+  icon: string
+  enabled: boolean
+  reason?: string | null
+}
+
+/** 发起支付出参 */
+export interface PayLaunch {
+  paid: boolean
+  payType?: PayType
+  payNo?: string
+  /** WECHAT_JSAPI：{appId,timeStamp,nonceStr,package,signType,paySign}；WECHAT_H5：{h5Url}；ALIPAY_WAP：{payUrl} */
+  payParams?: Record<string, string> | null
+}
+
+/** 支付结果轮询 */
+export interface PayStatus {
+  orderId: string
+  status: OrderStatus
+  statusText?: string
+  paid: boolean
+  payType?: string
+  payTime?: string
+}
+
+/** 物流轨迹 */
+export interface LogisticsTrace {
+  time: string
+  context: string
+  location?: string | null
+}
+
+export interface Logistics {
+  company?: string | null
+  companyName?: string | null
+  trackingNo?: string | null
+  state: string
+  stateText?: string | null
+  /** 时间倒序 */
+  traces: LogisticsTrace[]
+  message?: string | null
+}
 export type ItemAftersaleStatus = 'NONE' | 'APPLYING' | 'REFUNDED'
 
 export interface OrderItem {
@@ -102,7 +150,8 @@ export interface Order {
   discountAmount: number
   adjustAmount?: number
   payAmount: number
-  payType?: PayType
+  /** 订单支付方式：BALANCE / WECHAT / ALIPAY / MOCK */
+  payType?: string
   payTime?: string
   payExpireAt?: string
   receiverName: string
@@ -125,7 +174,14 @@ export interface Order {
 }
 
 export type AftersaleType = 'REFUND' | 'RETURN_REFUND'
-export type AftersaleStatus = 'APPLYING' | 'WAIT_RETURN' | 'RETURNING' | 'REFUNDED' | 'REJECTED' | 'CANCELLED'
+export type AftersaleStatus = 'APPLYING' | 'WAIT_RETURN' | 'RETURNING' | 'REFUNDING' | 'REFUNDED' | 'REJECTED' | 'CANCELLED'
+
+/** 商家退货地址 */
+export interface ReturnAddress {
+  name: string
+  mobile: string
+  address: string
+}
 
 export interface Aftersale {
   id: string
@@ -148,6 +204,8 @@ export interface Aftersale {
   refundTime?: string
   createdAt: string
   item?: OrderItem
+  /** 退货退款且状态为 WAIT_RETURN 及之后时返回 */
+  returnAddress?: ReturnAddress | null
 }
 
 export interface AftersaleForm {

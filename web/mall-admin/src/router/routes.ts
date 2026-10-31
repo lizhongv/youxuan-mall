@@ -93,7 +93,9 @@ const groups: GroupDef[] = [
         component: () => import('@/views/trade/order-detail.vue'),
       },
       { path: '/trade/aftersale', name: 'TradeAftersale', title: '售后处理', icon: 'RefreshLeft', permission: 'trade:aftersale:view', component: () => import('@/views/trade/aftersale.vue') },
+      { path: '/trade/payment', name: 'TradePayment', title: '支付流水', icon: 'Wallet', permission: 'trade:payment:view', component: () => import('@/views/trade/payment/index.vue') },
       { path: '/trade/review', name: 'TradeReview', title: '评价管理', icon: 'ChatLineSquare', permission: 'trade:review:view', component: () => import('@/views/trade/review.vue') },
+      { path: '/trade/freight', name: 'TradeFreight', title: '运费模板', icon: 'Van', permission: 'trade:freight:view', component: () => import('@/views/trade/freight/index.vue') },
     ],
   },
   {
@@ -167,6 +169,8 @@ export const breadcrumbMap: Record<string, string[]> = Object.fromEntries(
 
 export const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'Login', component: () => import('@/views/login/index.vue'), meta: { title: '登录', public: true } },
+  // 强制修改初始密码：需登录但不进入布局，不能绕过（守卫拦截其他页面）
+  { path: '/change-password', name: 'ChangePassword', component: () => import('@/views/login/change-password.vue'), meta: { title: '修改初始密码', hideTab: true } },
   {
     path: '/',
     name: 'Root',
@@ -178,5 +182,6 @@ export const routes: RouteRecordRaw[] = [
       { path: '/403', name: 'Forbidden', component: () => import('@/views/error/403.vue'), meta: { title: '无权限', hidden: true, hideTab: true } },
     ],
   },
+  { path: '/network-error', name: 'NetworkError', component: () => import('@/views/error/network.vue'), meta: { title: '网络异常', public: true } },
   { path: '/:pathMatch(.*)*', name: 'NotFound', component: () => import('@/views/error/404.vue'), meta: { title: '页面不存在', public: true } },
 ]

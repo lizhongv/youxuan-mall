@@ -114,7 +114,7 @@ defineExpose({ load })
           <el-icon v-if="current?.id === row.id" class="text-primary" :size="18"><CircleCheckFilled /></el-icon>
         </template>
       </el-table-column>
-      <template #empty><EmptyState text="没有找到商品" /></template>
+      <template #empty><EmptyState v-if="!loading" text="没有找到商品" /><div v-else class="table-placeholder" /></template>
     </el-table>
     <div class="pagination">
       <el-pagination

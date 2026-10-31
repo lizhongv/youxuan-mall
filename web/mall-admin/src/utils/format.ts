@@ -67,3 +67,8 @@ export function flattenTree<T extends { children?: T[] }>(list: T[] = []): T[] {
   walk(list)
   return out
 }
+
+/** 手机号脱敏 138****8000；已脱敏或非 11 位手机号原样返回 */
+export function maskMobile(m?: string | null): string {
+  return m && /^\d{11}$/.test(m) ? `${m.slice(0, 3)}****${m.slice(7)}` : m || ''
+}

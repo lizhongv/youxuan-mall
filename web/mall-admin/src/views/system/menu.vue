@@ -148,7 +148,7 @@ async function remove(row: Menu) {
         </div>
       </div>
       <el-table :key="tableKey" v-loading="loading" :data="filtered" row-key="id" :default-expand-all="expandAll || !!keyword">
-        <el-table-column label="菜单名称" min-width="220">
+        <el-table-column label="菜单名称" min-width="200">
           <template #default="{ row }: { row: any }">
             <span class="menu-name">
               <el-icon v-if="row.icon"><component :is="row.icon" /></el-icon>
@@ -159,13 +159,13 @@ async function remove(row: Menu) {
         <el-table-column label="类型" width="90" align="center">
           <template #default="{ row }: { row: any }"><StatusTag :value="row.type" :options="MENU_TYPE" :dot="false" /></template>
         </el-table-column>
-        <el-table-column label="路由 / 组件" min-width="200">
+        <el-table-column label="路由 / 组件" min-width="190">
           <template #default="{ row }: { row: any }">
             <div class="mono">{{ row.path || '-' }}</div>
             <div v-if="row.component" class="mono text-secondary sub">{{ row.component }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="权限标识" min-width="180">
+        <el-table-column label="权限标识" min-width="160">
           <template #default="{ row }: { row: any }"><span class="mono text-secondary">{{ row.permission || '-' }}</span></template>
         </el-table-column>
         <el-table-column label="排序" prop="sort" width="70" align="center" />
@@ -186,7 +186,7 @@ async function remove(row: Menu) {
             <el-button link type="danger" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无菜单" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无菜单" /><div v-else class="table-placeholder" /></template>
       </el-table>
     </div>
 

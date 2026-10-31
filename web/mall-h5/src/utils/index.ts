@@ -132,3 +132,69 @@ export function ratePercent(v?: number | null): number {
   const n = Number(v || 0)
   return Math.round(n <= 1 ? n * 100 : n)
 }
+
+/**
+ * 规格文案统一格式：「颜色:星空灰;存储:8+256G」→「星空灰 / 8+256G」。
+ * 兼容全角冒号/分号、逗号分隔与已格式化的文本。
+ */
+export function fmtSpec(v?: string | null): string {
+  if (!v) return ''
+  const parts = v
+    .split(/[;；,，]/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const i = p.search(/[:：]/)
+      return i >= 0 ? p.slice(i + 1).trim() : p
+    })
+    .filter(Boolean)
+  return parts.length ? parts.join(' / ') : v
+}
+
+/** 是否在微信内置浏览器 */
+export function isWechat(): boolean {
+  return /MicroMessenger/i.test(navigator.userAgent)
+}
+
+/** 后端 Long 序列化为字符串：统一转数字后再判断大小，避免 "0" 被当成真值 */
+export function num(v: unknown): number {
+  const n = Number(v ?? 0)
+  return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * 图片上传前压缩：长边超过 maxSide 或体积超过 maxBytes 时，按长边 maxSide、JPEG 质量 quality 重新编码。
+ * GIF 与压缩后反而更大的情况返回原文件；任何异常都回退原文件。
+ */
+export async function compressImage(file: File, maxSide = 1600, quality = 0.8, maxBytes = 1024 * 1024): Promise<File> {
+  if (!/^image\/(jpeg|png|webp|bmp)$/i.test(file.type)) return file
+  try {
+    const url = URL.createObjectURL(file)
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = reject
+      el.src = url
+    })
+    URL.revokeObjectURL(url)
+    const { naturalWidth: w, naturalHeight: h } = img
+    const long = Math.max(w, h)
+    if (long <= maxSide && file.size <= maxBytes) return file
+    const scale = long > maxSide ? maxSide / long : 1
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(w * scale)
+    canvas.height = Math.round(h * scale)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return file
+    // PNG 透明背景转 JPEG 时填白
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', quality))
+    if (!blob || blob.size >= file.size) return file
+    const name = file.name.replace(/\.[^.]+$/, '') + '.jpg'
+    return new File([blob], name, { type: 'image/jpeg', lastModified: Date.now() })
+  } catch {
+    return file
+  }
+}

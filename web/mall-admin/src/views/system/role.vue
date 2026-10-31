@@ -131,7 +131,7 @@ const typeMap = Object.fromEntries(MENU_TYPE.map((t) => [t.value, t]))
         </div>
       </div>
       <el-table v-loading="loading" :data="list" row-key="id" highlight-current-row @current-change="selectRole">
-        <el-table-column label="角色" min-width="160">
+        <el-table-column label="角色" min-width="140">
           <template #default="{ row }: { row: any }">
             <div class="role-name">{{ row.name }}</div>
             <div class="mono text-secondary sub">{{ row.code }}</div>
@@ -141,14 +141,14 @@ const typeMap = Object.fromEntries(MENU_TYPE.map((t) => [t.value, t]))
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }: { row: any }"><StatusTag :value="row.status" :options="ENABLE_STATUS" /></template>
         </el-table-column>
-        <el-table-column label="备注" prop="remark" min-width="140" show-overflow-tooltip />
+        <el-table-column label="备注" prop="remark" min-width="130" show-overflow-tooltip />
         <el-table-column v-if="canEdit" label="操作" width="120" fixed="right">
           <template #default="{ row }: { row: any }">
             <el-button link type="primary" @click.stop="open(row)">编辑</el-button>
             <el-button link type="danger" :disabled="row.code === SUPER_ADMIN" @click.stop="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无角色" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无角色" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>

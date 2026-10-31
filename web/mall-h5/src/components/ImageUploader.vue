@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { showToast, type UploaderFileListItem } from 'vant'
 import { upload } from '@/api/member'
+import { compressImage } from '@/utils'
 
 /** 图片上传：选择后立即上传到 /app/member/upload，v-model 为图片 URL 数组 */
 const props = withDefaults(defineProps<{ maxCount?: number; bizType?: string; maxSizeMb?: number }>(), {
@@ -48,8 +49,23 @@ function onDelete() {
   sync()
 }
 
-function onOversize() {
-  showToast(`图片不能超过 ${props.maxSizeMb}MB`)
+/**
+ * 读取前压缩：长边 1600px、JPEG 质量 0.8（手机原图常超 5MB）；压缩后仍超限再提示。
+ * 体积校验放在压缩之后，所以 van-uploader 不再设置 max-size。
+ */
+async function beforeRead(file: File | File[]): Promise<File | File[]> {
+  const list = Array.isArray(file) ? file : [file]
+  const out: File[] = []
+  for (const f of list) {
+    const c = await compressImage(f, 1600, 0.8)
+    if (c.size > props.maxSizeMb * 1024 * 1024) {
+      showToast(`图片不能超过 ${props.maxSizeMb}MB`)
+      continue
+    }
+    out.push(c)
+  }
+  if (!out.length) return Promise.reject(new Error('oversize'))
+  return Array.isArray(file) ? out : out[0]
 }
 </script>
 
@@ -57,12 +73,11 @@ function onOversize() {
   <van-uploader
     v-model="fileList"
     :max-count="maxCount"
-    :max-size="maxSizeMb * 1024 * 1024"
     accept="image/*"
     multiple
+    :before-read="beforeRead"
     :after-read="afterRead"
     preview-size="72"
     @delete="onDelete"
-    @oversize="onOversize"
   />
 </template>

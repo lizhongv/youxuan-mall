@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import type { GoodsItem } from '@/types'
-import { fmtSales } from '@/utils'
+import { fmtSales, num } from '@/utils'
 import Price from './Price.vue'
 
 /** 商品卡片：grid 双列卡片 / list 单列横排 */
@@ -28,7 +28,7 @@ function open() {
       <div class="goods-card__foot">
         <div class="goods-card__price">
           <Price :value="goods.price" size="sm" />
-          <Price v-if="goods.originalPrice && goods.originalPrice > goods.price" :value="goods.originalPrice" strike />
+          <Price v-if="num(goods.originalPrice) > num(goods.price)" :value="goods.originalPrice" strike class="goods-card__origin" />
         </div>
         <span class="goods-card__sales">已售{{ fmtSales(goods.sales) }}</span>
       </div>
@@ -64,12 +64,22 @@ function open() {
     gap: 4px;
     margin-top: 6px;
   }
+  /*
+   * 价格区固定一行高、允许换行并裁掉第二行：放不下时划线价整体折到隐藏行，
+   * 不会出现「¥1499.0(」这种半截价格；主价格始终完整。
+   */
   &__price {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
-    gap: 4px;
+    column-gap: 4px;
     min-width: 0;
+    height: 18px;
     overflow: hidden;
+  }
+  &__origin {
+    line-height: 18px;
+    white-space: nowrap;
   }
   &__sales {
     flex-shrink: 0;

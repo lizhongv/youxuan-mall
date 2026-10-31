@@ -72,10 +72,15 @@ async function savePwd() {
   if (!(await pwdRef.value?.validate().catch(() => false))) return
   pwdSaving.value = true
   try {
-    await authApi.updatePassword({ oldPassword: pwd.oldPassword, newPassword: pwd.newPassword })
-    toast.success('密码已修改，请重新登录')
-    await user.logout(false)
-    router.replace('/login')
+    const kept = await user.changePassword({ oldPassword: pwd.oldPassword, newPassword: pwd.newPassword })
+    if (kept) {
+      toast.success('密码已修改，其他设备上的登录已失效')
+      pwdRef.value?.resetFields()
+    } else {
+      toast.success('密码已修改，请重新登录')
+      await user.logout(false)
+      router.replace('/login')
+    }
   } finally {
     pwdSaving.value = false
   }

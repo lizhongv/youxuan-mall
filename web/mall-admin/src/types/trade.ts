@@ -70,7 +70,7 @@ export interface OrderDetail extends Order {
 
 export type OrderStatusCount = Partial<Record<OrderStatus, number>>
 
-export type AftersaleStatus = 'APPLYING' | 'WAIT_RETURN' | 'RETURNING' | 'REFUNDED' | 'REJECTED' | 'CANCELLED'
+export type AftersaleStatus = 'APPLYING' | 'WAIT_RETURN' | 'RETURNING' | 'REFUNDING' | 'REFUNDED' | 'REJECTED' | 'CANCELLED'
 export type AftersaleType = 'REFUND' | 'RETURN_REFUND'
 
 export interface Aftersale {
@@ -96,6 +96,14 @@ export interface Aftersale {
   refundTime: string
   createdAt: string
   item?: OrderItem
+  /** 商家退货地址：退货退款且状态为 WAIT_RETURN 及之后时返回 */
+  returnAddress?: ReturnAddress | null
+}
+
+export interface ReturnAddress {
+  name: string
+  mobile: string
+  address: string
 }
 
 export interface Review {
@@ -116,4 +124,80 @@ export interface Review {
   replyTime: string
   status: Switch
   createdAt: string
+}
+
+// ---------------- 运费模板 ----------------
+export type ChargeType = 'BY_COUNT' | 'BY_WEIGHT'
+
+export interface FreightRule {
+  /** 空数组 = 默认地区（全国其他地区） */
+  provinces: string[]
+  firstUnit: number
+  firstFee: number
+  nextUnit: number
+  nextFee: number
+}
+
+export interface FreightFree {
+  /** 空数组 = 全部地区 */
+  provinces: string[]
+  minCount: number
+  minAmount: number
+}
+
+export interface FreightTemplate {
+  id?: ID
+  name: string
+  chargeType: ChargeType
+  isDefault: Switch
+  status: Switch
+  rules: FreightRule[]
+  frees: FreightFree[]
+  createdAt?: string
+}
+
+export interface FreightTemplateOption {
+  id: ID
+  name: string
+  chargeType: ChargeType
+  isDefault: Switch
+}
+
+// ---------------- 支付流水 ----------------
+export type PayChannel = 'BALANCE' | 'WECHAT' | 'ALIPAY' | 'MOCK'
+export type PaymentStatus = 'WAITING' | 'SUCCESS' | 'CLOSED' | 'REFUNDED' | 'REFUNDED_AFTER_CLOSE'
+
+export interface Payment {
+  id: ID
+  payNo: string
+  orderId: ID
+  orderNo: string
+  memberId: ID
+  channel: PayChannel
+  channelText: string
+  tradeType: string
+  amount: number
+  status: PaymentStatus
+  statusText: string
+  channelNo: string
+  paidAt: string
+  remark: string
+  createdAt: string
+}
+
+// ---------------- 物流 ----------------
+export interface LogisticsTrace {
+  time: string
+  context: string
+  location?: string
+}
+
+export interface Logistics {
+  company: string
+  companyName: string
+  trackingNo: string
+  state: string
+  stateText: string
+  traces: LogisticsTrace[]
+  message: string | null
 }

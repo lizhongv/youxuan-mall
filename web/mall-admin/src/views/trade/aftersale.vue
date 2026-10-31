@@ -56,10 +56,11 @@ const steps = computed(() => {
   if (!d) return []
   const base = [{ title: '买家申请', time: d.createdAt }]
   if (d.type === 'RETURN_REFUND') {
-    base.push({ title: '商家审核', time: d.auditTime }, { title: '买家退货', time: '' }, { title: '退款完成', time: d.refundTime })
+    base.push({ title: '商家审核', time: d.auditTime }, { title: '买家退货', time: '' }, { title: '商家收货', time: '' })
   } else {
-    base.push({ title: '商家审核', time: d.auditTime }, { title: '退款完成', time: d.refundTime })
+    base.push({ title: '商家审核', time: d.auditTime })
   }
+  base.push({ title: '退款中', time: '' }, { title: '退款完成', time: d.refundTime })
   return base
 })
 
@@ -74,11 +75,25 @@ const activeStep = computed(() => {
       return 2
     case 'RETURNING':
       return 3
+    case 'REFUNDING':
+      return isReturn ? 4 : 2
     case 'REFUNDED':
-      return isReturn ? 4 : 3
+      return isReturn ? 6 : 4
     default:
       return d.auditTime ? 2 : 1
   }
+})
+
+async function copy(text: string) {
+  navigator.clipboard?.writeText(text).then(
+    () => toast.success('已复制'),
+    () => toast.warning('复制失败，请手动选择复制'),
+  )
+}
+
+const returnAddressText = computed(() => {
+  const a = detail.value?.returnAddress
+  return a ? `${a.name} ${a.mobile} ${a.address}` : ''
 })
 
 async function act(kind: 'approve' | 'reject' | 'receive') {
@@ -133,7 +148,7 @@ async function act(kind: 'approve' | 'reject' | 'receive') {
         <el-tab-pane v-for="s in AFTERSALE_STATUS" :key="s.value" :name="s.value" :label="s.label" />
       </el-tabs>
       <el-table v-loading="loading" :data="list" row-key="id">
-        <el-table-column label="售后商品" min-width="280">
+        <el-table-column label="售后商品" min-width="240">
           <template #default="{ row }: { row: any }">
             <div class="goods-cell">
               <el-image :src="row.item?.pic" fit="cover" class="goods-cell__img" />
@@ -144,32 +159,37 @@ async function act(kind: 'approve' | 'reject' | 'receive') {
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="售后单号 / 订单号" min-width="200">
+        <el-table-column label="售后单号 / 订单号" min-width="190">
           <template #default="{ row }: { row: any }">
             <div class="mono">{{ row.aftersaleNo }}</div>
             <div class="mono text-secondary sub link" @click="router.push(`/trade/order/${row.orderId}`)">{{ row.orderNo }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="买家" prop="memberNickname" min-width="110" />
-        <el-table-column label="类型" width="100" align="center">
-          <template #default="{ row }: { row: any }"><StatusTag :value="row.type" :options="AFTERSALE_TYPE" :dot="false" /></template>
+        <el-table-column label="买家" prop="memberNickname" min-width="100" show-overflow-tooltip />
+        <el-table-column label="类型 / 原因" min-width="130">
+          <template #default="{ row }: { row: any }">
+            <StatusTag :value="row.type" :options="AFTERSALE_TYPE" :dot="false" />
+            <div class="text-secondary sub ellipsis" :title="row.reason">{{ row.reason || '-' }}</div>
+          </template>
         </el-table-column>
-        <el-table-column label="原因" prop="reason" min-width="140" show-overflow-tooltip />
-        <el-table-column label="退款金额" width="120" align="right">
+        <el-table-column label="退款金额" width="100" align="right">
           <template #default="{ row }: { row: any }"><span class="money money--danger">{{ money(row.amount) }}</span></template>
         </el-table-column>
-        <el-table-column label="状态" width="120" align="center">
+        <el-table-column label="状态" width="104" align="center">
           <template #default="{ row }: { row: any }"><StatusTag :value="row.status" :options="AFTERSALE_STATUS" :label="row.statusText || undefined" /></template>
         </el-table-column>
-        <el-table-column label="申请时间" width="170">
-          <template #default="{ row }: { row: any }"><span class="text-secondary">{{ formatTime(row.createdAt) }}</span></template>
+        <el-table-column label="申请时间" width="110">
+          <template #default="{ row }: { row: any }">
+            <div class="text-secondary sub" :title="formatTime(row.createdAt)">{{ formatTime(row.createdAt, 'YYYY-MM-DD') }}</div>
+            <div class="text-secondary sub">{{ formatTime(row.createdAt, 'HH:mm:ss') }}</div>
+          </template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }: { row: any }">
             <el-button link type="primary" @click="open(row)">{{ canAudit && ['APPLYING', 'RETURNING'].includes(row.status) ? '处理' : '查看' }}</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无售后单" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无售后单" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>
@@ -184,6 +204,13 @@ async function act(kind: 'approve' | 'reject' | 'receive') {
           <StatusTag :value="detail.status" :options="AFTERSALE_STATUS" :label="detail.statusText || undefined" />
         </div>
 
+        <el-alert
+          v-if="detail.status === 'REFUNDING'"
+          type="info"
+          :closable="false"
+          show-icon
+          title="退款中：已向支付渠道发起退款，等待渠道返回结果，系统会自动查询并更新状态"
+        />
         <el-steps v-if="!['REJECTED', 'CANCELLED'].includes(detail.status)" :active="activeStep" finish-status="success" align-center class="as-steps">
           <el-step v-for="s in steps" :key="s.title" :title="s.title" :description="s.time ? formatTime(s.time, 'MM-DD HH:mm') : ''" />
         </el-steps>
@@ -229,6 +256,23 @@ async function act(kind: 'approve' | 'reject' | 'receive') {
               class="as-images__item"
             />
           </div>
+        </section>
+
+        <section v-if="detail.type === 'RETURN_REFUND' && ['WAIT_RETURN', 'RETURNING', 'REFUNDING', 'REFUNDED'].includes(detail.status)" class="as-section">
+          <h4>商家退货地址</h4>
+          <div v-if="detail.returnAddress" class="return-addr">
+            <el-icon class="return-addr__icon"><Location /></el-icon>
+            <div class="return-addr__body">
+              <div><b>{{ detail.returnAddress.name }}</b> <span class="mono">{{ detail.returnAddress.mobile }}</span></div>
+              <div class="return-addr__text">{{ detail.returnAddress.address }}</div>
+            </div>
+            <el-button link type="primary" :icon="'DocumentCopy'" @click="copy(returnAddressText)">复制</el-button>
+          </div>
+          <el-alert v-else type="warning" :closable="false" show-icon>
+            <template #title>
+              未配置退货地址，买家看不到寄回地址。请到 <router-link to="/system/config?group=trade" class="inline-link">系统参数 › 交易</router-link> 填写退货收件人、电话与地址。
+            </template>
+          </el-alert>
         </section>
 
         <section v-if="detail.auditRemark && detail.status !== 'REJECTED'" class="as-section">
@@ -304,6 +348,31 @@ async function act(kind: 'approve' | 'reject' | 'receive') {
   border-radius: var(--app-radius);
   background: var(--app-card-bg-muted);
   color: var(--app-text-regular);
+}
+.return-addr {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--app-radius);
+  border: 1px dashed var(--app-border-strong);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-text);
+  &__icon {
+    margin-top: 3px;
+    color: var(--el-color-primary);
+  }
+  &__body {
+    flex: 1;
+    min-width: 0;
+  }
+  &__text {
+    color: var(--app-text-regular);
+  }
+}
+.inline-link {
+  color: var(--el-color-primary);
 }
 .as-images {
   display: flex;

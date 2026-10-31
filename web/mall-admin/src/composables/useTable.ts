@@ -26,7 +26,8 @@ export function useTable<T, Q extends object = Record<string, unknown>>(
   const total = ref(0)
   const page = ref(1)
   const size = ref(pageSize)
-  const loading = ref(false)
+  // 自动加载时初始即为 loading，避免首帧闪现空状态
+  const loading = ref(immediate)
   const selection = shallowRef<T[]>([])
   let seq = 0
 

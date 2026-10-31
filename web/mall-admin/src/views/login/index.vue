@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { nextTick, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { FormInstance, FormRules } from 'element-plus'
+import type { FormInstance, FormRules, InputInstance } from 'element-plus'
+import { authApi } from '@/api/auth'
+import { ApiError, ResultCode } from '@/utils/request'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
 import { useTabsStore } from '@/stores/tabs'
@@ -20,11 +22,41 @@ const savedName = storage.get(StorageKey.rememberUser) || ''
 const formRef = ref<FormInstance>()
 const loading = ref(false)
 const remember = ref(!!savedName)
-const form = reactive({ username: savedName, password: '' })
+const form = reactive({ username: savedName, password: '', captchaCode: '' })
+
+// ---------- 图形验证码：登录失败 2 次后服务端要求（needCaptcha） ----------
+const needCaptcha = ref(false)
+const captcha = reactive({ id: '', image: '', loading: false })
+const captchaInput = ref<InputInstance>()
+
+async function refreshCaptcha() {
+  if (captcha.loading) return
+  captcha.loading = true
+  try {
+    const res = await authApi.captcha()
+    captcha.id = res.captchaId
+    captcha.image = res.image
+    // demo 模式返回答案，自动填入方便体验
+    form.captchaCode = res.devCode || ''
+  } catch {
+    captcha.image = ''
+  } finally {
+    captcha.loading = false
+  }
+}
+
+async function requireCaptcha() {
+  const first = !needCaptcha.value
+  needCaptcha.value = true
+  await refreshCaptcha()
+  if (first) await nextTick()
+  captchaInput.value?.focus()
+}
 
 const rules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  captchaCode: [{ required: true, message: '请输入图形验证码', trigger: 'blur' }],
 }
 
 async function submit() {
@@ -32,18 +64,34 @@ async function submit() {
   if (!(await formRef.value?.validate().catch(() => false))) return
   loading.value = true
   try {
-    await user.login({ username: form.username.trim(), password: form.password })
+    await user.login({
+      username: form.username.trim(),
+      password: form.password,
+      ...(needCaptcha.value ? { captchaId: captcha.id, captchaCode: form.captchaCode.trim() } : {}),
+    })
     if (remember.value) storage.set(StorageKey.rememberUser, form.username.trim())
     else storage.remove(StorageKey.rememberUser)
     await user.fetchInfo()
     tabs.reset()
+    if (user.mustChangePassword) {
+      router.replace({ name: 'ChangePassword' })
+      return
+    }
     toast.success(`欢迎回来，${user.displayName}`)
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
     // 只允许站内相对路径，避免开放重定向
     const target = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : firstAccessiblePath()
     router.replace(target)
-  } catch {
-    form.password = ''
+  } catch (e) {
+    const data = e instanceof ApiError ? (e.data as { needCaptcha?: boolean } | undefined) : undefined
+    if (e instanceof ApiError && (e.code === ResultCode.NEED_CAPTCHA || data?.needCaptcha)) {
+      // 验证码一次性：任何失败后都换新
+      await requireCaptcha()
+      if (e.code !== ResultCode.NEED_CAPTCHA) form.password = ''
+    } else {
+      form.password = ''
+      if (needCaptcha.value) refreshCaptcha()
+    }
   } finally {
     loading.value = false
   }
@@ -144,6 +192,24 @@ const features = [
           </el-form-item>
           <el-form-item prop="password">
             <el-input v-model="form.password" type="password" placeholder="密码" autocomplete="current-password" show-password :prefix-icon="'Lock'" />
+          </el-form-item>
+          <el-form-item v-if="needCaptcha" prop="captchaCode">
+            <div class="captcha">
+              <el-input
+                ref="captchaInput"
+                v-model="form.captchaCode"
+                placeholder="图形验证码"
+                maxlength="8"
+                autocomplete="off"
+                :prefix-icon="'Key'"
+                class="captcha__input"
+              />
+              <button type="button" class="captcha__img" title="看不清？点击换一张" @click="refreshCaptcha">
+                <img v-if="captcha.image" :src="captcha.image" alt="图形验证码" />
+                <span v-else-if="captcha.loading"><el-icon class="is-loading"><Loading /></el-icon></span>
+                <span v-else class="captcha__retry">点击获取</span>
+              </button>
+            </div>
           </el-form-item>
           <div class="login__row">
             <el-checkbox v-model="remember">记住用户名</el-checkbox>
@@ -349,6 +415,41 @@ const features = [
     box-shadow: 0 8px 20px rgba(79, 110, 247, 0.35);
     &:hover {
       opacity: 0.92;
+    }
+  }
+}
+
+.captcha {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  &__input {
+    flex: 1;
+    min-width: 0;
+  }
+  &__img {
+    flex: none;
+    width: 120px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--app-border-strong);
+    border-radius: var(--el-border-radius-base);
+    background: var(--app-card-bg-muted);
+    cursor: pointer;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--app-text-secondary);
+    font-size: 12px;
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    &:hover {
+      border-color: var(--el-color-primary);
     }
   }
 }

@@ -54,6 +54,10 @@ export interface Sku {
   price: number
   originalPrice: number
   stock: number
+  /** 编辑页打开时详情返回的库存，保存时原样回传用于差量调整（新增 SKU 不传） */
+  originStock?: number
+  /** 单件重量 kg（3 位小数） */
+  weight?: number
 }
 
 export interface GoodsForm {
@@ -73,6 +77,8 @@ export interface GoodsForm {
   isNew: Switch
   isHot: Switch
   isRecommend: Switch
+  /** 运费模板，空表示默认模板 */
+  freightTemplateId?: ID | '' | null
   specItems: SpecItem[]
   skus: Sku[]
 }

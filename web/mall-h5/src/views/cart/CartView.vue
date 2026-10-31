@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { fmtSpec } from '@/utils'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
@@ -10,6 +11,7 @@ import { useCartStore } from '@/stores/cart'
 import { useAppStore } from '@/stores/app'
 import Price from '@/components/Price.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import { errorMessage } from '@/api/request'
 import GoodsWaterfall from '@/components/GoodsWaterfall.vue'
 
 const route = useRoute()
@@ -21,6 +23,8 @@ const app = useAppStore()
 const items = ref<CartItem[]>([])
 const loading = ref(false)
 const loaded = ref(false)
+/** 加载失败（区别于空购物车） */
+const loadError = ref('')
 const editing = ref(false)
 /** 编辑模式下的本地选择（不影响结算勾选） */
 const editSelected = ref<Set<string>>(new Set())
@@ -29,12 +33,15 @@ const guess = ref<GoodsItem[]>([])
 async function load() {
   if (!user.isLogin) return
   loading.value = true
+  loadError.value = ''
   try {
     items.value = (await getCart()) || []
     syncCount()
+    loaded.value = true
+  } catch (e) {
+    loadError.value = errorMessage(e)
   } finally {
     loading.value = false
-    loaded.value = true
   }
 }
 
@@ -184,6 +191,13 @@ function isSelected(item: CartItem) {
     />
     <van-loading v-else-if="loading && !loaded" class="cart__loading" vertical>加载中...</van-loading>
     <EmptyState
+      v-else-if="loadError && !loaded"
+      image="network"
+      :description="`购物车加载失败：${loadError}`"
+      button-text="重新加载"
+      @click="load"
+    />
+    <EmptyState
       v-else-if="loaded && !items.length"
       description="购物车还是空的，快去挑选好物吧"
       button-text="去逛逛"
@@ -213,7 +227,7 @@ function isSelected(item: CartItem) {
               <div class="cart-item__name ellipsis-2" @click="router.push({ name: 'goods', params: { id: item.goodsId } })">
                 {{ item.goodsName }}
               </div>
-              <div v-if="item.specText" class="cart-item__spec ellipsis">{{ item.specText }}</div>
+              <div v-if="item.specText" class="cart-item__spec ellipsis">{{ fmtSpec(item.specText) }}</div>
               <div class="cart-item__foot">
                 <Price :value="item.price" size="sm" />
                 <van-stepper
@@ -253,7 +267,7 @@ function isSelected(item: CartItem) {
             <van-image :src="item.pic" width="88" height="88" radius="8" fit="cover" lazy-load />
             <div class="cart-item__body">
               <div class="cart-item__name ellipsis-2">{{ item.goodsName }}</div>
-              <div v-if="item.specText" class="cart-item__spec ellipsis">{{ item.specText }}</div>
+              <div v-if="item.specText" class="cart-item__spec ellipsis">{{ fmtSpec(item.specText) }}</div>
               <div class="cart-item__reason">{{ item.stock <= 0 ? '商品已售罄' : '商品已下架' }}</div>
             </div>
           </div>

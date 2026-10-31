@@ -2,6 +2,7 @@ import { http } from './request'
 import type {
   Category,
   Coupon,
+  DictItem,
   GoodsDetail,
   GoodsItem,
   GoodsQuery,
@@ -36,3 +37,6 @@ export const getSeckillList = () => http.get<Seckill[]>('/app/public/seckill/lis
 export const getConfig = () => http.get<MallConfig>('/app/public/config', undefined, { silent: true })
 
 export const getNotice = (id: string) => http.get<Notice>(`/app/public/notice/${id}`)
+
+/** 公开字典（cancel_reason / aftersale_reason / express_company），静默失败由调用方回退 */
+export const getDict = (type: string) => http.get<DictItem[]>(`/app/public/dict/${type}`, undefined, { silent: true })

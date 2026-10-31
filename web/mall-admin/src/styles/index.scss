@@ -121,6 +121,11 @@ a {
   margin-top: 16px;
 }
 
+// 表格加载中的占位（避免首屏闪现「暂无数据」，并给加载动画留出高度）
+.table-placeholder {
+  height: 160px;
+}
+
 // 表格内商品单元
 .goods-cell {
   display: flex;

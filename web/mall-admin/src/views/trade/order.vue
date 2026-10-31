@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { orderApi } from '@/api/trade'
 import type { Order, OrderStatusCount } from '@/types'
 import { useTable } from '@/composables/useTable'
-import { formatTime, money } from '@/utils/format'
+import { formatTime, maskMobile, money } from '@/utils/format'
 import { ORDER_STATUS, ORDER_TYPE } from '@/utils/constants'
 import StatusTag from '@/components/StatusTag.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -145,7 +145,7 @@ const itemCount = (o: Order) => (o.items || []).reduce((n, i) => n + i.quantity,
       </div>
 
       <el-table v-loading="loading" :data="list" row-key="id" class="order-table">
-        <el-table-column label="商品" min-width="300">
+        <el-table-column label="商品" min-width="250">
           <template #default="{ row }: { row: any }">
             <div class="order-goods">
               <div class="order-goods__pics">
@@ -166,10 +166,10 @@ const itemCount = (o: Order) => (o.items || []).reduce((n, i) => n + i.quantity,
             <div class="text-secondary sub">{{ formatTime(row.createdAt) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="买家 / 收货人" min-width="170">
+        <el-table-column label="买家 / 收货人" min-width="150">
           <template #default="{ row }: { row: any }">
             <div>{{ row.memberNickname || '-' }}</div>
-            <div class="text-secondary sub">{{ row.receiverName }} {{ row.receiverMobile }}</div>
+            <div class="text-secondary sub">{{ row.receiverName }} {{ maskMobile(row.receiverMobile) }}</div>
           </template>
         </el-table-column>
         <el-table-column label="实付金额" width="130" align="right">
@@ -178,7 +178,7 @@ const itemCount = (o: Order) => (o.items || []).reduce((n, i) => n + i.quantity,
             <div class="text-secondary sub">{{ Number(row.freightAmount) ? `含运费 ${money(row.freightAmount)}` : '包邮' }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="类型" width="100" align="center">
+        <el-table-column label="类型" width="90" align="center">
           <template #default="{ row }: { row: any }"><StatusTag :value="row.orderType" :options="ORDER_TYPE" :dot="false" /></template>
         </el-table-column>
         <el-table-column label="状态" width="110" align="center">
@@ -190,7 +190,7 @@ const itemCount = (o: Order) => (o.items || []).reduce((n, i) => n + i.quantity,
             <el-button v-if="row.status === 'PENDING_DELIVERY'" v-perm="'trade:order:deliver'" link type="primary" @click="openDeliver(row)">发货</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无订单" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无订单" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>

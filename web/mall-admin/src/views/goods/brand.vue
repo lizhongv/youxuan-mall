@@ -147,7 +147,7 @@ async function remove(row: Brand) {
             <el-button link type="danger" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无品牌" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无品牌" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>

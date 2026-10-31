@@ -168,7 +168,7 @@ const QUICK_REPLIES = ['感谢您的支持与好评，期待您再次光临！',
             <el-button link type="primary" @click="openReply(row)">{{ row.reply ? '修改回复' : '回复' }}</el-button>
           </template>
         </el-table-column>
-        <template #empty><EmptyState text="暂无评价" /></template>
+        <template #empty><EmptyState v-if="!loading" text="暂无评价" /><div v-else class="table-placeholder" /></template>
       </el-table>
       <Pagination :page="page" :size="size" :total="total" @page-change="onPageChange" @size-change="onSizeChange" />
     </div>

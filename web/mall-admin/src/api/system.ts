@@ -32,6 +32,14 @@ export const configApi = {
   batch: (items: { configKey: string; configValue: string }[]) => http.put<void>('/admin/system/config/batch', { items }),
 }
 
+export const infraApi = {
+  smsTest: (mobile: string) => http.post<{ provider: string }>('/admin/system/sms/test', { mobile }, { timeout: 30000 }),
+  storageTest: () =>
+    http.post<{ provider: string; sampleUrl?: string; elapsedMs?: number; message?: string }>('/admin/system/storage/test', undefined, {
+      timeout: 30000,
+    }),
+}
+
 export const logApi = {
   operPage: (params: object) => http.get<PageResult<OperLog>>('/admin/system/oper-log/page', params),
   loginPage: (params: object) => http.get<PageResult<LoginLog>>('/admin/system/login-log/page', params),

@@ -5,7 +5,7 @@ import type { Aftersale } from '@/types'
 import { getAftersalePage } from '@/api/aftersale'
 import { usePageList } from '@/composables/usePageList'
 import { AFTERSALE_STATUS_TEXT, AFTERSALE_TYPE_TEXT } from '@/utils/dict'
-import { fmtTime, money } from '@/utils'
+import { fmtSpec, fmtTime, money } from '@/utils'
 import NavBar from '@/components/NavBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -49,7 +49,7 @@ onMounted(reset)
             <van-image :src="a.item.pic" width="64" height="64" radius="6" fit="cover" lazy-load />
             <div class="as-card__goods-body">
               <div class="ellipsis-2">{{ a.item.goodsName }}</div>
-              <div class="as-card__spec ellipsis">{{ a.item.specText }}</div>
+              <div class="as-card__spec ellipsis">{{ fmtSpec(a.item.specText) }}</div>
             </div>
           </div>
           <div class="as-card__foot">
