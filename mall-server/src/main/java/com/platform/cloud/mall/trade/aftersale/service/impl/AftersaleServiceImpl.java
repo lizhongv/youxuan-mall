@@ -25,6 +25,7 @@ import com.platform.cloud.mall.trade.common.Money;
 import com.platform.cloud.mall.trade.common.NoGenerator;
 import com.platform.cloud.mall.trade.common.Operators;
 import com.platform.cloud.mall.trade.common.TradeSettings;
+import com.platform.cloud.mall.trade.common.TradeSettings.ReturnAddress;
 import com.platform.cloud.mall.trade.order.entity.Order;
 import com.platform.cloud.mall.trade.order.entity.OrderItem;
 import com.platform.cloud.mall.trade.order.enums.OrderStatus;
@@ -75,6 +76,10 @@ public class AftersaleServiceImpl implements AftersaleService {
     static final String BIZ_REWARD_REVOKE = "ORDER_REWARD_REVOKE";
     /** 运费退款单号后缀：渠道按退款单号幂等，运费与商品退款需不同单号 */
     static final String FREIGHT_REFUND_SUFFIX = "F";
+    /** 展示退货地址的售后状态，见 {@link #showsReturnAddress} */
+    static final Set<String> RETURN_ADDRESS_STATUSES = Set.of(AftersaleStatus.WAIT_RETURN.name(),
+            AftersaleStatus.RETURNING.name(), AftersaleStatus.REFUNDING.name(), AftersaleStatus.REFUNDED.name());
+
     /** 与 trd_aftersale.audit_remark 列宽一致 */
     private static final int REMARK_MAX = 255;
 
@@ -243,6 +248,10 @@ public class AftersaleServiceImpl implements AftersaleService {
         if (AftersaleType.REFUND.name().equals(a.getType())) {
             refund(a, Operators.admin(adminId), r);
         } else {
+            // 买家拿到「待退货」后要按地址寄回，地址没配置就同意会让买家无处可寄、售后卡死
+            if (settings.returnAddress() == null) {
+                throw new BusinessException("请先在系统参数中设置退货地址");
+            }
             transit(a, AftersaleStatus.WAIT_RETURN, w -> w.set(Aftersale::getAuditRemark, r)
                     .set(Aftersale::getAuditTime, now));
         }
@@ -543,18 +552,36 @@ public class AftersaleServiceImpl implements AftersaleService {
             members = memberApi.getMembers(memberIds);
         }
         Map<Long, MemberBrief> finalMembers = members;
+        // 一页只读一次配置（ConfigApi 有缓存，这里只是省掉逐行的方法调用），且只有需要展示时才读
+        ReturnAddress returnAddress = records.stream().anyMatch(AftersaleServiceImpl::showsReturnAddress)
+                ? settings.returnAddress() : null;
         return PageVO.of(page, a -> toVO(a, orders.get(a.getOrderId()), items.get(a.getOrderItemId()),
-                finalMembers.get(a.getMemberId())));
+                finalMembers.get(a.getMemberId()), returnAddress));
     }
 
     private AftersaleVO toDetail(Aftersale a, boolean withMember) {
         Order order = orderMapper.selectById(a.getOrderId());
         OrderItem item = orderItemMapper.selectById(a.getOrderItemId());
         MemberBrief m = withMember ? memberApi.getMember(a.getMemberId()) : null;
-        return toVO(a, order, item, m);
+        return toVO(a, order, item, m, showsReturnAddress(a) ? settings.returnAddress() : null);
     }
 
-    private static AftersaleVO toVO(Aftersale a, Order order, OrderItem item, MemberBrief member) {
+    /**
+     * 是否向买家 / 后台展示退货地址：仅退货退款，且已审核通过（待退货、退货中）或已进入退款（便于事后核对寄往何处）。
+     * 申请中、已拒绝、已撤销不展示，避免未同意退货的买家直接把货寄过来。
+     */
+    static boolean showsReturnAddress(Aftersale a) {
+        if (!AftersaleType.RETURN_REFUND.name().equals(a.getType())) {
+            return false;
+        }
+        return RETURN_ADDRESS_STATUSES.contains(a.getStatus());
+    }
+
+    /**
+     * @param returnAddress 当前退货地址配置；本方法按售后单类型与状态决定是否输出
+     */
+    private static AftersaleVO toVO(Aftersale a, Order order, OrderItem item, MemberBrief member,
+                                    ReturnAddress returnAddress) {
         AftersaleVO vo = new AftersaleVO();
         vo.setId(a.getId());
         vo.setAftersaleNo(a.getAftersaleNo());
@@ -578,6 +605,7 @@ public class AftersaleServiceImpl implements AftersaleService {
         vo.setRefundTime(a.getRefundTime());
         vo.setCreatedAt(a.getCreatedAt());
         vo.setItem(item == null ? null : OrderAssembler.toItemVO(item));
+        vo.setReturnAddress(showsReturnAddress(a) ? returnAddress : null);
         return vo;
     }
 

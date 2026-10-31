@@ -8,6 +8,7 @@ import com.platform.cloud.mall.marketing.api.CouponApi.CouponOption;
 import com.platform.cloud.mall.marketing.api.SeckillApi;
 import com.platform.cloud.mall.marketing.api.SeckillApi.SeckillInfo;
 import com.platform.cloud.mall.member.api.MemberApi;
+import com.platform.cloud.mall.member.api.MemberApi.AddressRef;
 import com.platform.cloud.mall.member.api.MemberApi.AddressSnapshot;
 import com.platform.cloud.mall.member.api.MemberApi.MemberBrief;
 import com.platform.cloud.mall.trade.MpTestSupport;
@@ -487,6 +488,30 @@ class OrderCheckoutServiceImplTest {
     }
 
     @Test
+    void 预览未传地址时回退到默认地址并按其省份报价运费() {
+        when(memberApi.getPreferredAddress(MEMBER)).thenReturn(new AddressRef(88L,
+                new AddressSnapshot("李四", "13900000000", "浙江省", "杭州市", "西湖区", "文三路 1 号")));
+        OrderSubmitRequest req = buyNow(SKU_A, 1);
+        req.setAddressId(null);
+
+        OrderConfirmVO vo = service.confirm(MEMBER, req);
+
+        assertThat(vo.getAddress().getId()).isEqualTo(88L);
+        assertThat(vo.getAddress().getName()).isEqualTo("李四");
+        assertThat(vo.getAddress().getProvince()).isEqualTo("浙江省");
+        verify(freightQuote).quote(eq("浙江省"), any());
+        verify(memberApi, never()).getAddress(anyLong(), anyLong());
+    }
+
+    @Test
+    void 预览传了地址时不走默认地址回退() {
+        OrderConfirmVO vo = service.confirm(MEMBER, buyNow(SKU_A, 1));
+
+        assertThat(vo.getAddress().getId()).isEqualTo(ADDRESS);
+        verify(memberApi, never()).getPreferredAddress(anyLong());
+    }
+
+    @Test
     void 预览未传券时自动选可用且优惠最大的券() {
         when(couponApi.listForCheckout(eq(MEMBER), any())).thenReturn(List.of(
                 option(1L, true, "5.00"), option(2L, true, "8.00"), option(3L, false, "50.00")));
@@ -500,7 +525,10 @@ class OrderCheckoutServiceImplTest {
         assertThat(vo.getCouponAmount()).isEqualByComparingTo("8.00");
         // 100 × 0.9 = 90 < 99 → 运费 10；90 − 8 + 10 = 92
         assertThat(vo.getPayAmount()).isEqualByComparingTo("92.00");
+        // 未传地址且会员没有任何地址：不回填，运费按默认地区（省份 null）估算
         assertThat(vo.getAddress()).isNull();
+        verify(memberApi).getPreferredAddress(MEMBER);
+        verify(freightQuote).quote(isNull(), any());
         assertThat(vo.getCoupons()).hasSize(3);
         assertThat(vo.getBalance()).isEqualByComparingTo("500.00");
         verify(orderMapper, never()).insert(any(Order.class));

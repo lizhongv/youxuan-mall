@@ -5,6 +5,10 @@
 ## [Unreleased]
 
 ### 新增
+- 售后退货地址：系统参数 `trade.return_receiver_name` / `trade.return_receiver_mobile` / `trade.return_address`；售后 VO 增加 `returnAddress`（退货退款审核通过后返回）；未配置时后台不能同意退货。
+- 余额支付密码：`PUT /app/member/pay-password`（凭短信验证码，验证码经 `POST /app/member/pay-password/sms-code` 发给本人）；余额支付须传 `payPassword`，错误码 60010 未设置 / 60011 错误 / 60012 连续错误 5 次锁定 30 分钟；会员资料增加 `hasPayPassword`。
+- 结算预览未传地址时回退到默认地址（无默认取最近修改的），出参 `address.id` 可直接用于提交订单。
+- 迁移 `V8__return_address_pay_password.sql`：退货地址三项参数、`mbr_member.pay_password`。
 - 运费模板（按件 / 按重量、首续费、指定地区规则、指定条件包邮、默认模板），管理端 `/admin/trade/freight-template`；商品可选运费模板、SKU 增加重量。
 
 ### 修复（交易 / 营销 / 商品）

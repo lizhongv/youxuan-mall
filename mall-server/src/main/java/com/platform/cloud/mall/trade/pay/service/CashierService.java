@@ -19,8 +19,11 @@ public interface CashierService {
      */
     List<PayChannelVO> channels(Long memberId, Long orderId, boolean inWechat);
 
-    /** @param clientIp 用户终端 IP，微信 H5 支付必填 */
-    PayLaunchVO pay(Long memberId, Long orderId, String payType, String clientIp);
+    /**
+     * @param payPassword 余额支付密码，payType=BALANCE 时必填，在扣余额之前校验；其他方式忽略
+     * @param clientIp    用户终端 IP，微信 H5 支付必填
+     */
+    PayLaunchVO pay(Long memberId, Long orderId, String payType, String payPassword, String clientIp);
 
     /** 支付结果；本地仍未支付时主动向渠道查单补偿（同一支付单 3 秒内只查一次） */
     PayStatusVO payStatus(Long memberId, Long orderId);

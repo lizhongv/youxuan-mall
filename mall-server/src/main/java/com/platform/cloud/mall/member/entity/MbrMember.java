@@ -20,6 +20,8 @@ public class MbrMember extends BaseEntity {
     private String mobile;
     /** BCrypt 密文；验证码注册的会员为空串 */
     private String password;
+    /** 余额支付密码 BCrypt 密文，空串表示未设置；连续错误计数在 Redis，见 PayPasswordServiceImpl */
+    private String payPassword;
     private String nickname;
     private String avatar;
     private Integer gender;

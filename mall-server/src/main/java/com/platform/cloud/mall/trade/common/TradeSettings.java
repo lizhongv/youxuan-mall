@@ -48,6 +48,30 @@ public class TradeSettings {
         return nonNegative(configApi.getDecimal(ConfigKeys.GROWTH_PER_YUAN, TradeDefaults.GROWTH_PER_YUAN));
     }
 
+    /**
+     * 退货地址；三项都为空视为未配置，返回 null。
+     * 只要有一项填了就返回（缺项保持空串）：是否「填全」由运营判断，这里不替运营拦截半截配置，
+     * 否则后台填了地址漏了电话会直接导致买家看不到任何退货信息。
+     */
+    public ReturnAddress returnAddress() {
+        String name = trimmed(ConfigKeys.RETURN_RECEIVER_NAME);
+        String mobile = trimmed(ConfigKeys.RETURN_RECEIVER_MOBILE);
+        String address = trimmed(ConfigKeys.RETURN_ADDRESS);
+        if (name.isEmpty() && mobile.isEmpty() && address.isEmpty()) {
+            return null;
+        }
+        return new ReturnAddress(name, mobile, address);
+    }
+
+    /** 退货收件信息，直接作为售后 VO 的 returnAddress 输出 */
+    public record ReturnAddress(String name, String mobile, String address) {
+    }
+
+    private String trimmed(String key) {
+        String v = configApi.getString(key, "");
+        return v == null ? "" : v.trim();
+    }
+
     /** 超时类参数配成 0 或负数会导致订单刚创建就被关闭，按默认值处理 */
     private static int positive(int v, int def) {
         return v > 0 ? v : def;

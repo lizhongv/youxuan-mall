@@ -69,6 +69,7 @@ public class MemberProfileServiceImpl implements MemberProfileService {
         vo.setGrowth(m.getGrowth());
         vo.setBalance(m.getBalance());
         vo.setHasPassword(StringUtils.hasText(m.getPassword()));
+        vo.setHasPayPassword(StringUtils.hasText(m.getPayPassword()));
         vo.setCouponCount(toInt(couponApi.countUsable(memberId)));
         vo.setFavoriteCount(toInt(favoriteService.count(memberId)));
         vo.setOrderCount(normalizeOrderCounts(tradeApi.memberOrderCounts(memberId)));

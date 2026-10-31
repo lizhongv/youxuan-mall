@@ -72,7 +72,8 @@ public class AppOrderController {
     @Idempotent(prefix = "idem:order:pay:", ttl = 300)
     @PostMapping("/{id}/pay")
     public R<PayLaunchVO> pay(@PathVariable Long id, @Valid @RequestBody OrderPayRequest req) {
-        return R.ok(cashierService.pay(SecurityUtils.currentUserId(), id, req.getPayType(), RequestUtils.clientIp()));
+        return R.ok(cashierService.pay(SecurityUtils.currentUserId(), id, req.getPayType(), req.getPayPassword(),
+                RequestUtils.clientIp()));
     }
 
     @Operation(summary = "支付结果（从渠道返回后轮询；本地未支付时主动向渠道查单）")

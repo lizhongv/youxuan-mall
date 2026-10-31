@@ -160,22 +160,50 @@ class CashierServiceImplTest {
 
     @Test
     void 同步渠道_交给PayService落账() {
-        PayLaunchVO vo = service.pay(MEMBER, ORDER_ID, "BALANCE", "1.2.3.4");
+        PayLaunchVO vo = service.pay(MEMBER, ORDER_ID, "BALANCE", "135790", "1.2.3.4");
         assertThat(vo.getPaid()).isTrue();
         verify(payService).pay(MEMBER, ORDER_ID, "BALANCE");
     }
 
     @Test
+    void 余额支付先校验支付密码再扣款() {
+        service.pay(MEMBER, ORDER_ID, "BALANCE", "135790", "1.2.3.4");
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(memberApi, payService);
+        order.verify(memberApi).verifyPayPassword(MEMBER, "135790");
+        order.verify(payService).pay(MEMBER, ORDER_ID, "BALANCE");
+    }
+
+    @Test
+    void 余额支付密码校验失败时不扣款也不处理旧支付单() {
+        org.mockito.Mockito.doThrow(new com.platform.cloud.bootstrap.common.exception.BusinessException(
+                        com.platform.cloud.bootstrap.common.web.ResultCode.PAY_PASSWORD_WRONG, "支付密码错误，还可尝试 4 次"))
+                .when(memberApi).verifyPayPassword(MEMBER, "000000");
+
+        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "BALANCE", "000000", ""))
+                .hasFieldOrPropertyWithValue("code", 60011);
+        verify(payService, never()).pay(any(), any(), anyString());
+        verify(paymentMapper, never()).selectList(any());
+    }
+
+    @Test
+    void 非余额支付不校验支付密码() {
+        props.setMockEnabled(true);
+        service.pay(MEMBER, ORDER_ID, "MOCK", null, "");
+        verify(memberApi, never()).verifyPayPassword(any(), any());
+    }
+
+    @Test
     void 模拟支付关闭时不可用() {
         props.setMockEnabled(false);
-        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "MOCK", "")).hasMessageContaining("不支持");
+        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "MOCK", null, "")).hasMessageContaining("不支持");
     }
 
     @Test
     void 公众号支付_写流水_下单_保存调起参数() {
         when(wechat.prepay(any())).thenReturn(Map.of("package", "prepay_id=1", "paySign", "s"));
 
-        PayLaunchVO vo = service.pay(MEMBER, ORDER_ID, "WECHAT_JSAPI", "1.2.3.4");
+        PayLaunchVO vo = service.pay(MEMBER, ORDER_ID, "WECHAT_JSAPI", null, "1.2.3.4");
 
         assertThat(vo.getPaid()).isFalse();
         assertThat(vo.getPayParams()).containsEntry("package", "prepay_id=1");
@@ -196,20 +224,20 @@ class CashierServiceImplTest {
     @Test
     void 公众号支付_未绑定openid_拒绝() {
         when(memberApi.getOpenid(MEMBER, MemberApi.PLATFORM_WECHAT_MP)).thenReturn(null);
-        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "WECHAT_JSAPI", "")).hasMessageContaining("微信授权");
+        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "WECHAT_JSAPI", null, "")).hasMessageContaining("微信授权");
         verify(paymentMapper, never()).insert(any(Payment.class));
     }
 
     @Test
     void 渠道不可用时拒绝() {
         when(alipay.availability(any())).thenReturn(Availability.notReady("支付宝暂未配置完成"));
-        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "ALIPAY_WAP", "")).hasMessageContaining("未配置");
+        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "ALIPAY_WAP", null, "")).hasMessageContaining("未配置");
     }
 
     @Test
     void 下单失败_关闭流水并提示() {
         when(alipay.prepay(any())).thenThrow(new BusinessException("支付宝下单失败：参数错误"));
-        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "ALIPAY_WAP", "")).hasMessageContaining("参数错误");
+        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "ALIPAY_WAP", null, "")).hasMessageContaining("参数错误");
         verify(paymentMapper).update(isNull(), any());
     }
 
@@ -232,7 +260,7 @@ class CashierServiceImplTest {
         when(paymentMapper.selectList(any())).thenReturn(List.of(waiting("WECHAT_H5", "WECHAT",
                 LocalDateTime.now().minusMinutes(1))));
 
-        PayLaunchVO vo = service.pay(MEMBER, ORDER_ID, "WECHAT_H5", "1.2.3.4");
+        PayLaunchVO vo = service.pay(MEMBER, ORDER_ID, "WECHAT_H5", null, "1.2.3.4");
 
         assertThat(vo.getPayNo()).isEqualTo("P-OLD");
         assertThat(vo.getPayParams()).containsEntry("h5Url", "https://wx/h5");
@@ -247,7 +275,7 @@ class CashierServiceImplTest {
         when(wechat.query(old)).thenReturn(new ChannelTrade("P-OLD", ChannelTrade.State.WAITING, "", 8880));
         when(alipay.prepay(any())).thenReturn(Map.of("payUrl", "u"));
 
-        service.pay(MEMBER, ORDER_ID, "ALIPAY_WAP", "");
+        service.pay(MEMBER, ORDER_ID, "ALIPAY_WAP", null, "");
 
         verify(wechat).close(old);
         verify(alipay).prepay(any());
@@ -261,7 +289,7 @@ class CashierServiceImplTest {
         when(wechat.query(old)).thenReturn(paid);
         when(settlement.settle(paid)).thenReturn(SettleOutcome.PAID);
 
-        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "BALANCE", "")).hasMessageContaining("已支付");
+        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "BALANCE", "135790", "")).hasMessageContaining("已支付");
         verify(payService, never()).pay(any(), any(), anyString());
     }
 
@@ -272,14 +300,14 @@ class CashierServiceImplTest {
         when(wechat.query(old)).thenReturn(new ChannelTrade("P-OLD", ChannelTrade.State.WAITING, "", 8880));
         org.mockito.Mockito.doThrow(new BusinessException("微信关单失败：ORDERPAID")).when(wechat).close(old);
 
-        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "WECHAT_H5", "")).hasMessageContaining("确认中");
+        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "WECHAT_H5", null, "")).hasMessageContaining("确认中");
         verify(wechat, never()).prepay(any());
     }
 
     @Test
     void 已支付订单不能发起() {
         order.setStatus("PENDING_DELIVERY");
-        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "WECHAT_H5", "")).hasMessageContaining("无需支付");
+        assertThatThrownBy(() -> service.pay(MEMBER, ORDER_ID, "WECHAT_H5", null, "")).hasMessageContaining("无需支付");
     }
 
     @Test

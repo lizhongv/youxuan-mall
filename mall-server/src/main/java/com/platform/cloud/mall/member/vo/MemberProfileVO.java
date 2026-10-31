@@ -28,4 +28,6 @@ public class MemberProfileVO {
     private Map<String, Integer> orderCount;
     /** 是否已设置登录密码，前端据此决定修改密码页是否要求输入原密码 */
     private Boolean hasPassword;
+    /** 是否已设置余额支付密码，前端据此在余额支付前引导设置 */
+    private Boolean hasPayPassword;
 }

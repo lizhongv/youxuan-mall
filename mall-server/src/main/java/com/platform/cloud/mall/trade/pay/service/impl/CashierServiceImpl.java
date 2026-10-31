@@ -142,12 +142,17 @@ public class CashierServiceImpl implements CashierService {
     }
 
     @Override
-    public PayLaunchVO pay(Long memberId, Long orderId, String payTypeName, String clientIp) {
+    public PayLaunchVO pay(Long memberId, Long orderId, String payTypeName, String payPassword, String clientIp) {
         PayType type = PayType.of(payTypeName);
         Order order = requirePayableOrder(memberId, orderId);
         if (type.sync()) {
             if (type == PayType.MOCK && !payProperties.isMockEnabled()) {
                 throw new BusinessException("暂不支持该支付方式");
+            }
+            if (type == PayType.BALANCE) {
+                // 在扣余额（以及关闭旧的待支付单）之前校验：登录态被盗用时不能直接花掉余额。
+                // 本方法不在事务内，错误计数写 Redis 后不会因后续异常回滚
+                memberApi.verifyPayPassword(memberId, payPassword);
             }
             // 先处理掉之前发起的微信 / 支付宝待支付单：若其实已付款，这里会落账并提示，避免再扣一次余额
             closeOutstanding(order, null);
