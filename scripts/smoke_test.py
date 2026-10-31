@@ -116,6 +116,12 @@ def main():
         buyer.token = tok["accessToken"]
         prof = buyer.call("GET", "/app/member/profile")
         ctx["mobile"] = mobile
+        ctx["memberId"] = prof["id"]
+        # 注册赠送余额默认为 0（上线安全默认值），由后台调账给测试会员充值，顺带验证调账接口
+        admin.call("POST", f"/admin/member/member/{prof['id']}/adjust",
+                   json={"accountType": "BALANCE", "amount": 500, "remark": "冒烟测试充值"})
+        prof = buyer.call("GET", "/app/member/profile")
+        assert float(prof["balance"]) >= 500, f"调账后余额 {prof['balance']}"
         return f"{mobile} 余额 {prof['balance']}"
 
     @step("收货地址、收藏、领券")
