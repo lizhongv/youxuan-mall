@@ -19,6 +19,8 @@ public class GoodsDetailVO {
     private Long categoryId;
     private String categoryName;
     private Long brandId;
+    @io.swagger.v3.oas.annotations.media.Schema(description = "运费模板 ID，空表示使用默认模板")
+    private Long freightTemplateId;
     private String brandName;
     private String name;
     private String subtitle;

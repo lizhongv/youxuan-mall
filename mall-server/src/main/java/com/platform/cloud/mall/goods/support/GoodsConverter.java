@@ -44,6 +44,7 @@ public final class GoodsConverter {
         vo.setPrice(s.getPrice());
         vo.setOriginalPrice(s.getOriginalPrice());
         vo.setStock(s.getStock());
+        vo.setWeight(s.getWeight());
         vo.setSales(s.getSales());
         return vo;
     }

@@ -58,6 +58,11 @@ public interface GoodsMapper extends BaseMapper<Goods> {
             + "WHERE id = #{id}")
     int deductStock(@Param("id") Long id, @Param("quantity") int quantity);
 
+    /** 后台编辑 SKU 后按 SKU 当前库存重算 SPU 冗余库存，不信任表单值 */
+    @Update("UPDATE gds_goods SET stock = (SELECT COALESCE(SUM(s.stock), 0) FROM gds_sku s "
+            + "WHERE s.goods_id = #{id} AND s.deleted = 0) WHERE id = #{id}")
+    int syncStock(@Param("id") Long id);
+
     /** 取消 / 退款回补 SPU 冗余库存与销量 */
     @Update("UPDATE gds_goods SET stock = stock + #{quantity}, sales = GREATEST(sales - #{quantity}, 0) "
             + "WHERE id = #{id}")

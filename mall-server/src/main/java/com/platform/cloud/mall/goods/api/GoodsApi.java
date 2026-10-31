@@ -24,11 +24,24 @@ public interface GoodsApi {
     /** 回补库存并扣减销量（取消订单、关单、退款） */
     void restoreStock(Long skuId, int quantity);
 
+    /**
+     * 运费计算用：SKU 所属商品的运费模板与单件重量（kg）。不存在的 ID 不返回。
+     * 单独成方法而不是扩展 {@link SkuSnapshot}，避免影响购物车、秒杀等只关心价格库存的调用方。
+     */
+    Map<Long, ShippingInfo> getShipping(Collection<Long> skuIds);
+
+    /** 引用某运费模板的商品数（删除模板前校验） */
+    long countByFreightTemplate(Long templateId);
+
     /** 统计用：在售商品数 */
     long countOnSale();
 
     record SkuSnapshot(Long skuId, Long goodsId, Long categoryId, String goodsName, String pic, String specText,
                        BigDecimal price, Integer stock, boolean onSale) {
+    }
+
+    /** @param freightTemplateId 商品指定的运费模板，空表示用默认模板 */
+    record ShippingInfo(Long skuId, Long freightTemplateId, BigDecimal weight) {
     }
 
     record GoodsBrief(Long id, String name, String pic, BigDecimal price, BigDecimal originalPrice, Integer sales,

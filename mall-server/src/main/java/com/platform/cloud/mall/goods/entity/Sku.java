@@ -27,5 +27,7 @@ public class Sku extends BaseEntity {
     private BigDecimal price;
     private BigDecimal originalPrice;
     private Integer stock;
+    /** 单件重量（kg），运费模板按重量计费时使用 */
+    private BigDecimal weight;
     private Integer sales;
 }

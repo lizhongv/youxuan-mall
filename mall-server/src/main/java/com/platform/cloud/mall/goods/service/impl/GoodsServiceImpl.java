@@ -34,6 +34,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -48,6 +50,10 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class GoodsServiceImpl implements GoodsService {
+
+    /** JSON 列用 Wrapper set 时需显式指定类型处理器（与实体 @TableField 一致） */
+    private static final String JSON_MAPPING =
+            "typeHandler=com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler";
 
     /** 列表不查详情富文本，减少 IO */
     private static final String DETAIL_COLUMN = "detail";
@@ -89,6 +95,7 @@ public class GoodsServiceImpl implements GoodsService {
         vo.setCategoryId(g.getCategoryId());
         vo.setCategoryName(categoryService.names(List.of(g.getCategoryId())).get(g.getCategoryId()));
         vo.setBrandId(g.getBrandId());
+        vo.setFreightTemplateId(g.getFreightTemplateId());
         if (g.getBrandId() != null) {
             vo.setBrandName(brandService.names(List.of(g.getBrandId())).get(g.getBrandId()));
         }
@@ -137,15 +144,47 @@ public class GoodsServiceImpl implements GoodsService {
         Goods g = mustGet(id);
         List<SpecItem> specItems = prepare(form);
         apply(g, form, specItems);
-        if (goodsMapper.updateById(g) == 0) {
+        // 只写表单字段：stock / sales 由下单扣减、取消回补实时维护，整行 updateById 会把读取时的旧值写回
+        if (goodsMapper.update(null, formFields(g)
+                .eq(Goods::getId, id)
+                .eq(Goods::getVersion, g.getVersion())
+                .set(Goods::getVersion, (g.getVersion() == null ? 0 : g.getVersion()) + 1)) == 0) {
             throw new BusinessException("商品已被修改，请刷新后重试");
         }
         syncSkus(id, form.getSkus(), specItems);
+        goodsMapper.syncStock(id);
+    }
+
+    /** 商品表单可编辑的列；刻意不含 stock / sales */
+    static LambdaUpdateWrapper<Goods> formFields(Goods g) {
+        return new LambdaUpdateWrapper<Goods>()
+                .set(Goods::getCategoryId, g.getCategoryId())
+                .set(Goods::getBrandId, g.getBrandId())
+                .set(Goods::getFreightTemplateId, g.getFreightTemplateId())
+                .set(Goods::getName, g.getName())
+                .set(Goods::getSubtitle, g.getSubtitle())
+                .set(Goods::getPic, g.getPic())
+                .set(Goods::getAlbum, g.getAlbum(), JSON_MAPPING)
+                .set(Goods::getDetail, g.getDetail())
+                .set(Goods::getSpecItems, g.getSpecItems(), JSON_MAPPING)
+                .set(Goods::getPrice, g.getPrice())
+                .set(Goods::getOriginalPrice, g.getOriginalPrice())
+                .set(Goods::getVirtualSales, g.getVirtualSales())
+                .set(Goods::getUnit, g.getUnit())
+                .set(Goods::getKeywords, g.getKeywords())
+                .set(Goods::getStatus, g.getStatus())
+                .set(Goods::getIsNew, g.getIsNew())
+                .set(Goods::getIsHot, g.getIsHot())
+                .set(Goods::getIsRecommend, g.getIsRecommend())
+                .set(Goods::getSort, g.getSort());
     }
 
     /**
      * 按 SKU id 对齐：有 id 的更新（必须属于本商品，防止篡改他人 SKU），无 id 的新增，表单里没有的逻辑删除。
      * 保留 SKU id 不变很重要：购物车、秒杀活动都按 SKU id 关联。
+     * <p>
+     * 已有 SKU 的库存不覆盖：编辑页打开到保存之间可能有订单扣减 / 取消回补，直接写表单值会抹掉这些变动
+     * （超卖或库存凭空增加）。改为按 {@code 目标 − originStock} 的差量做条件更新，结果不得小于 0。
      */
     void syncSkus(Long goodsId, List<SkuForm> forms, List<SpecItem> specItems) {
         Map<Long, Sku> existing = listSkus(goodsId).stream()
@@ -164,8 +203,14 @@ public class GoodsServiceImpl implements GoodsService {
                 throw new BusinessException("SKU 重复提交");
             }
             applySku(sku, sf, specItems);
-            if (skuMapper.updateById(sku) == 0) {
-                throw new BusinessException("SKU 库存已变化，请刷新后重试");
+            if (skuMapper.update(null, skuFormFields(sku).eq(Sku::getId, sku.getId())
+                    .eq(Sku::getGoodsId, goodsId)) == 0) {
+                throw new BusinessException("SKU 已被删除，请刷新后重试");
+            }
+            int delta = stockDelta(sf);
+            if (delta != 0 && skuMapper.adjustStock(sku.getId(), delta) == 0) {
+                throw new BusinessException("规格「" + displayName(sku) + "」库存已被订单占用，减少 " + (-delta)
+                        + " 件后会小于 0，请刷新后重试");
             }
         }
         List<Long> removed = existing.keySet().stream().filter(skuId -> !kept.contains(skuId)).toList();
@@ -242,6 +287,7 @@ public class GoodsServiceImpl implements GoodsService {
         GoodsSkuHelper.Summary summary = GoodsSkuHelper.summarize(form.getSkus());
         g.setCategoryId(form.getCategoryId());
         g.setBrandId(form.getBrandId());
+        g.setFreightTemplateId(form.getFreightTemplateId());
         g.setName(form.getName().trim());
         g.setSubtitle(nullToEmpty(form.getSubtitle()));
         g.setPic(form.getPic());
@@ -261,6 +307,30 @@ public class GoodsServiceImpl implements GoodsService {
         g.setSort(form.getSort() == null ? 0 : form.getSort());
     }
 
+    /** 差量 = 目标库存 − 编辑页打开时的原库存；没传原库存（旧版前端）时不调整，宁可不改也不覆盖 */
+    static int stockDelta(SkuForm sf) {
+        if (sf.getOriginStock() == null || sf.getStock() == null) {
+            return 0;
+        }
+        return sf.getStock() - sf.getOriginStock();
+    }
+
+    /** SKU 表单可编辑的列；刻意不含 stock / sales */
+    private static LambdaUpdateWrapper<Sku> skuFormFields(Sku sku) {
+        return new LambdaUpdateWrapper<Sku>()
+                .set(Sku::getSpecValues, sku.getSpecValues(), JSON_MAPPING)
+                .set(Sku::getSpecText, sku.getSpecText())
+                .set(Sku::getCode, sku.getCode())
+                .set(Sku::getPic, sku.getPic())
+                .set(Sku::getPrice, sku.getPrice())
+                .set(Sku::getOriginalPrice, sku.getOriginalPrice())
+                .set(Sku::getWeight, sku.getWeight());
+    }
+
+    private static String displayName(Sku sku) {
+        return StringUtils.hasText(sku.getSpecText()) ? sku.getSpecText() : "默认";
+    }
+
     private static Sku newSku(Long goodsId, SkuForm sf, List<SpecItem> specItems) {
         Sku sku = new Sku();
         sku.setGoodsId(goodsId);
@@ -277,6 +347,9 @@ public class GoodsServiceImpl implements GoodsService {
         sku.setPic(nullToEmpty(sf.getPic()));
         sku.setPrice(GoodsSkuHelper.money(sf.getPrice()));
         sku.setOriginalPrice(GoodsSkuHelper.money(sf.getOriginalPrice()));
+        sku.setWeight(sf.getWeight() == null ? BigDecimal.ZERO.setScale(3)
+                : sf.getWeight().setScale(3, RoundingMode.HALF_UP));
+        // 只用于新增 SKU（insert）；已有 SKU 的库存走 adjustStock 差量，不经过这里写库
         sku.setStock(sf.getStock());
     }
 

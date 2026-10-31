@@ -95,6 +95,37 @@ public class GoodsApiImpl implements GoodsApi {
     }
 
     @Override
+    public Map<Long, ShippingInfo> getShipping(Collection<Long> skuIds) {
+        Map<Long, ShippingInfo> result = new HashMap<>();
+        List<Long> ids = distinct(skuIds);
+        if (ids.isEmpty()) {
+            return result;
+        }
+        List<Sku> skus = skuMapper.selectBatchIds(ids);
+        if (skus.isEmpty()) {
+            return result;
+        }
+        Map<Long, Goods> goods = goodsMapper.selectList(new LambdaQueryWrapper<Goods>()
+                        .select(Goods::getId, Goods::getFreightTemplateId)
+                        .in(Goods::getId, skus.stream().map(Sku::getGoodsId).distinct().toList()))
+                .stream().collect(Collectors.toMap(Goods::getId, Function.identity()));
+        for (Sku s : skus) {
+            Goods g = goods.get(s.getGoodsId());
+            if (g != null) {
+                result.put(s.getId(), new ShippingInfo(s.getId(), g.getFreightTemplateId(), s.getWeight()));
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public long countByFreightTemplate(Long templateId) {
+        Long n = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>()
+                .eq(Goods::getFreightTemplateId, templateId));
+        return n == null ? 0 : n;
+    }
+
+    @Override
     public long countOnSale() {
         return goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, GoodsStatus.ON_SALE.name()));
     }
