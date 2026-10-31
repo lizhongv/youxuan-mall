@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.cloud.bootstrap.common.exception.BusinessException;
 import com.platform.cloud.bootstrap.common.web.PageVO;
+import com.platform.cloud.mall.common.security.SecurityUtils;
 import com.platform.cloud.mall.system.dto.RoleQuery;
 import com.platform.cloud.mall.system.dto.RoleSaveRequest;
 import com.platform.cloud.mall.system.entity.SysAdminRole;
@@ -130,9 +131,12 @@ public class SysRoleServiceImpl implements SysRoleService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void assignMenus(Long roleId, List<Long> menuIds) {
-        require(roleId);
+        SysRole role = require(roleId);
         Set<Long> ids = new LinkedHashSet<>(menuIds);
         ids.remove(null);
+        if (!SecurityUtils.hasAuthority(SecurityUtils.SUPER_ADMIN_ROLE)) {
+            ids = restrictToOwnMenus(role, ids);
+        }
         if (!ids.isEmpty()) {
             List<SysMenu> menus = menuMapper.selectBatchIds(ids);
             if (menus.size() != ids.size()) {
@@ -143,6 +147,44 @@ public class SysRoleServiceImpl implements SysRoleService {
         for (Long menuId : ids) {
             roleMenuMapper.insert(new SysRoleMenu(roleId, menuId));
         }
+    }
+
+    /**
+     * 非超管授权时只能在「自己拥有的菜单」范围内增减，防止持有角色编辑权限的运营给角色（包括自己的角色）
+     * 加上自己没有的权限从而提权。该角色原有、但操作人自己没有的菜单原样保留，不会被误删。
+     * 超管角色与操作人自己所属的角色一律不允许由非超管修改。
+     */
+    Set<Long> restrictToOwnMenus(SysRole role, Set<Long> requested) {
+        if (SystemConstants.SUPER_ADMIN_CODE.equals(role.getCode())) {
+            throw new BusinessException("只有超级管理员可以修改超级管理员角色的权限");
+        }
+        Long me = SecurityUtils.currentUserId();
+        List<Long> myRoleIds = adminRoleMapper.selectList(
+                        new LambdaQueryWrapper<SysAdminRole>().eq(SysAdminRole::getAdminId, me))
+                .stream().map(SysAdminRole::getRoleId).toList();
+        if (myRoleIds.contains(role.getId())) {
+            throw new BusinessException("不能修改自己所属角色的权限");
+        }
+        Set<Long> own = myRoleIds.isEmpty() ? Set.of() : roleMenuMapper.selectList(
+                        new LambdaQueryWrapper<SysRoleMenu>().in(SysRoleMenu::getRoleId, myRoleIds))
+                .stream().map(SysRoleMenu::getMenuId).collect(java.util.stream.Collectors.toSet());
+        Set<Long> existing = roleMenuMapper.selectList(
+                        new LambdaQueryWrapper<SysRoleMenu>().eq(SysRoleMenu::getRoleId, role.getId()))
+                .stream().map(SysRoleMenu::getMenuId).collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        Set<Long> result = new LinkedHashSet<>();
+        for (Long id : existing) {
+            if (!own.contains(id)) {
+                result.add(id);
+            }
+        }
+        for (Long id : requested) {
+            if (own.contains(id)) {
+                result.add(id);
+            } else if (!existing.contains(id)) {
+                throw new BusinessException("不能授予自己没有的权限");
+            }
+        }
+        return result;
     }
 
     @Override
