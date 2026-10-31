@@ -14,6 +14,7 @@ import com.platform.cloud.mall.trade.order.enums.OrderStatus;
 import com.platform.cloud.mall.trade.order.mapper.OrderItemMapper;
 import com.platform.cloud.mall.trade.order.mapper.OrderMapper;
 import com.platform.cloud.mall.trade.order.service.OrderStateMachine;
+import com.platform.cloud.mall.trade.pay.channel.PayChannel.RefundResult;
 import com.platform.cloud.mall.trade.pay.service.PayService;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,6 +83,7 @@ class AftersaleServiceImplTest {
         when(orderItemMapper.update(isNull(), any())).thenReturn(1);
         when(aftersaleMapper.update(isNull(), any())).thenReturn(1);
         when(aftersaleMapper.sumRefundedByItem(ITEM_ID)).thenReturn(BigDecimal.ZERO);
+        when(payService.refund(any(), any(), anyString())).thenReturn(RefundResult.success());
     }
 
     private static OrderItem item() {
@@ -348,5 +350,64 @@ class AftersaleServiceImplTest {
         assertThat(service.memberPage(MEMBER, new com.platform.cloud.mall.trade.aftersale.dto.AftersalePageQuery())
                 .getRecords()).isEmpty();
         verify(orderMapper, never()).selectBatchIds(any());
+    }
+
+    // ------------------------------------------------------------------ 渠道退款（REFUNDING）
+
+    @Test
+    void 微信退款处理中_售后保持退款中_不回补库存() {
+        orderIs(OrderStatus.PENDING_DELIVERY, null);
+        Aftersale a = aftersale("REFUND", "APPLYING", "50.00");
+        when(payService.refund(any(), any(), anyString())).thenReturn(RefundResult.processing());
+
+        service.approve(9L, AS_ID, "同意");
+
+        assertThat(a.getStatus()).isEqualTo("REFUNDING");
+        verify(goodsApi, never()).restoreStock(anyLong(), anyInt());
+        verify(orderItemMapper, never()).update(isNull(), any());
+    }
+
+    @Test
+    void 退款回调成功_退款中推进为完成并回补库存() {
+        orderIs(OrderStatus.PENDING_DELIVERY, null);
+        Aftersale a = aftersale("REFUND", "REFUNDING", "50.00");
+        when(orderItemMapper.selectCount(any())).thenReturn(1L);
+
+        service.onChannelRefundSuccess("A20261031120000000001");
+
+        assertThat(a.getStatus()).isEqualTo("REFUNDED");
+        verify(goodsApi).restoreStock(11L, 2);
+    }
+
+    @Test
+    void 退款回调重复通知幂等() {
+        aftersale("REFUND", "REFUNDED", "50.00");
+        service.onChannelRefundSuccess("A20261031120000000001");
+        verify(aftersaleMapper, never()).update(isNull(), any());
+        verify(goodsApi, never()).restoreStock(anyLong(), anyInt());
+    }
+
+    @Test
+    void 模拟支付订单退款_完成并在备注注明线下处理() {
+        orderIs(OrderStatus.DELIVERED, null);
+        Aftersale a = aftersale("REFUND", "APPLYING", "20.00");
+        when(payService.refund(any(), any(), anyString()))
+                .thenReturn(RefundResult.offline("模拟支付订单，需线下处理退款"));
+
+        service.approve(9L, AS_ID, "同意");
+
+        assertThat(a.getStatus()).isEqualTo("REFUNDED");
+        assertThat(AftersaleServiceImpl.appendRemark("同意", "【需线下处理】x")).isEqualTo("同意 【需线下处理】x");
+    }
+
+    @Test
+    void 渠道退款失败_保持退款中_备注只写一次() {
+        Aftersale a = aftersale("REFUND", "REFUNDING", "20.00");
+        a.setAuditRemark("同意 【退款失败：异常】");
+
+        service.onChannelRefundFailed("A20261031120000000001", "异常");
+
+        verify(aftersaleMapper, never()).update(isNull(), any());
+        assertThat(a.getStatus()).isEqualTo("REFUNDING");
     }
 }

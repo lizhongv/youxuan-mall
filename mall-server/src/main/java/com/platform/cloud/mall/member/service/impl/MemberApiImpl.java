@@ -10,11 +10,13 @@ import com.platform.cloud.mall.member.entity.MbrBrowseHistory;
 import com.platform.cloud.mall.member.entity.MbrFavorite;
 import com.platform.cloud.mall.member.entity.MbrLevel;
 import com.platform.cloud.mall.member.entity.MbrMember;
+import com.platform.cloud.mall.member.entity.MbrSocial;
 import com.platform.cloud.mall.member.mapper.MbrAddressMapper;
 import com.platform.cloud.mall.member.mapper.MbrBrowseHistoryMapper;
 import com.platform.cloud.mall.member.mapper.MbrFavoriteMapper;
 import com.platform.cloud.mall.member.mapper.MbrLevelMapper;
 import com.platform.cloud.mall.member.mapper.MbrMemberMapper;
+import com.platform.cloud.mall.member.mapper.MbrSocialMapper;
 import com.platform.cloud.mall.member.service.MemberAccountService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -52,6 +54,7 @@ public class MemberApiImpl implements MemberApi {
     private final MbrFavoriteMapper favoriteMapper;
     private final MbrBrowseHistoryMapper historyMapper;
     private final MemberAccountService accountService;
+    private final MbrSocialMapper socialMapper;
 
     @Override
     public MemberBrief getMember(Long memberId) {
@@ -138,6 +141,17 @@ public class MemberApiImpl implements MemberApi {
         h.setGoodsId(goodsId);
         historyMapper.insert(h);
         trimHistory(memberId);
+    }
+
+    @Override
+    public String getOpenid(Long memberId, String platform) {
+        if (memberId == null) {
+            return null;
+        }
+        MbrSocial s = socialMapper.selectOne(new LambdaQueryWrapper<MbrSocial>()
+                .eq(MbrSocial::getMemberId, memberId)
+                .eq(MbrSocial::getPlatform, platform));
+        return s == null ? null : s.getOpenid();
     }
 
     @Override

@@ -36,8 +36,10 @@ public class MockPayChannel implements PayChannel {
     }
 
     @Override
-    public void refund(RefundCommand cmd) {
+    public RefundResult refund(RefundCommand cmd) {
         log.info("模拟支付订单退款（线下处理）orderNo={} refundNo={} amount={}",
                 cmd.orderNo(), cmd.refundNo(), cmd.amount());
+        // 模拟支付没有真实资金流入，系统无从原路退回；标记线下处理，由售后单备注提示客服
+        return RefundResult.offline("模拟支付订单，需线下处理退款");
     }
 }

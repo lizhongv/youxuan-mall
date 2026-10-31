@@ -28,4 +28,10 @@ public interface AftersaleService {
     void reject(Long adminId, Long id, String remark);
 
     void receiveReturn(Long adminId, Long id);
+
+    /** 渠道异步退款成功（退款回调 / 补偿查询）：REFUNDING → REFUNDED，重复通知幂等 */
+    void onChannelRefundSuccess(String aftersaleNo);
+
+    /** 渠道退款失败：保持 REFUNDING，在审核备注里写明原因，提示客服到商户平台处理 */
+    void onChannelRefundFailed(String aftersaleNo, String reason);
 }

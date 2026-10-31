@@ -158,6 +158,31 @@ public class MemberAuthServiceImpl implements MemberAuthService {
         }
     }
 
+    @Override
+    public MemberTokenVO loginTrusted(Long memberId, String message) {
+        MbrMember m = memberMapper.selectById(memberId);
+        if (m == null) {
+            throw new BusinessException("账号不存在");
+        }
+        checkActive(m);
+        return onLoginSuccess(m, message);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long verifySmsAndGetOrRegister(String mobile, String code) {
+        smsCodeService.verify(mobile, SmsScene.LOGIN, code);
+        MbrMember m = findByMobile(mobile);
+        if (m == null) {
+            m = createMember(mobile, "", null);
+            loginLogService.record(UserType.MEMBER, m.getId(), mobile, true, "第三方账号绑定手机号注册");
+            return m.getId();
+        }
+        checkActive(m);
+        loginGuard.reset(mobile);
+        return m.getId();
+    }
+
     /**
      * 新会员：默认等级为门槛最低的等级，昵称默认「用户 + 手机后四位」，并按系统参数赠送余额。
      */

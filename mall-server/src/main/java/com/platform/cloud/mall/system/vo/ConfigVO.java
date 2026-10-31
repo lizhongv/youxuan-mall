@@ -11,4 +11,6 @@ public class ConfigVO {
     private String configValue;
     private String name;
     private String remark;
+    /** 敏感参数：configValue 已设置时返回掩码 ******，未设置时为空串 */
+    private Boolean sensitive;
 }

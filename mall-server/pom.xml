@@ -14,6 +14,14 @@
     <name>mall-server</name>
     <description>商城服务端：模块化单体，按领域分包（system / member / goods / marketing / trade / stats）</description>
 
+    <properties>
+        <!-- 支付渠道官方 SDK：只在商城服务端使用，版本放在本模块，避免影响微服务实验模块 -->
+        <!-- 微信支付 APIv3 官方 SDK，0.2.17（2025-04）为当前最新稳定版，内置平台证书/公钥自动管理 -->
+        <wechatpay-java.version>0.2.17</wechatpay-java.version>
+        <!-- 支付宝开放平台官方 SDK（4.40.x 为 2025 年持续维护的版本线） -->
+        <alipay-sdk.version>4.40.1061.ALL</alipay-sdk.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.platform.cloud</groupId>
@@ -52,6 +60,23 @@
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.wechatpay-apiv3</groupId>
+            <artifactId>wechatpay-java</artifactId>
+            <version>${wechatpay-java.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.alipay.sdk</groupId>
+            <artifactId>alipay-sdk-java</artifactId>
+            <version>${alipay-sdk.version}</version>
+            <exclusions>
+                <!-- Spring 已通过 spring-jcl 提供 commons-logging API，排除旧版避免日志桥接冲突 -->
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>

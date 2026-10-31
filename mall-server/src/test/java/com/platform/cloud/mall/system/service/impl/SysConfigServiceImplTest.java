@@ -53,6 +53,54 @@ class SysConfigServiceImplTest {
         verify(mapper, times(1)).selectList(any());
     }
 
+    @Test
+    void sensitiveValuesAreMaskedAndMaskIsNotSaved() {
+        com.platform.cloud.mall.testsupport.TableInfoTestSupport.init(SysConfig.class);
+        SysConfigMapper mapper = mock(SysConfigMapper.class);
+        SysConfig key = cfg(ConfigKeys.WECHAT_PAY_PRIVATE_KEY);
+        key.setConfigValue("-----BEGIN PRIVATE KEY-----abc");
+        key.setSensitive(1);
+        SysConfig empty = cfg(ConfigKeys.ALIPAY_PRIVATE_KEY);
+        empty.setId(2L);
+        empty.setConfigValue("");
+        empty.setSensitive(1);
+        SysConfig plain = cfg(ConfigKeys.WECHAT_PAY_MCH_ID);
+        plain.setId(3L);
+        plain.setConfigValue("1900000001");
+        plain.setSensitive(0);
+        when(mapper.selectList(any())).thenReturn(List.of(key, empty, plain));
+        SysConfigServiceImpl service = new SysConfigServiceImpl(mapper);
+
+        List<com.platform.cloud.mall.system.vo.ConfigVO> list = service.list();
+        assertThat(list.get(0).getConfigValue()).isEqualTo(SysConfigServiceImpl.MASK);
+        assertThat(list.get(0).getSensitive()).isTrue();
+        // 未设置的敏感值返回空串，前端据此显示「未设置」
+        assertThat(list.get(1).getConfigValue()).isEmpty();
+        assertThat(list.get(2).getConfigValue()).isEqualTo("1900000001");
+
+        com.platform.cloud.mall.system.dto.ConfigBatchRequest.Item masked =
+                new com.platform.cloud.mall.system.dto.ConfigBatchRequest.Item();
+        masked.setConfigKey(ConfigKeys.WECHAT_PAY_PRIVATE_KEY);
+        masked.setConfigValue(SysConfigServiceImpl.MASK);
+        service.batchUpdate(List.of(masked));
+        verify(mapper, times(0)).update(any(), any());
+
+        masked.setConfigValue("-----BEGIN PRIVATE KEY-----new");
+        service.batchUpdate(List.of(masked));
+        verify(mapper, times(1)).update(any(), any());
+    }
+
+    @Test
+    void payKeysAreValidated() {
+        assertThatThrownBy(() -> SysConfigServiceImpl.validate(cfg(ConfigKeys.WECHAT_PAY_ENABLED), "yes"))
+                .hasMessageContaining("true 或 false");
+        assertThatThrownBy(() -> SysConfigServiceImpl.validate(cfg(ConfigKeys.PAY_NOTIFY_BASE_URL),
+                "http://shop.example.com/api")).hasMessageContaining("https://");
+        SysConfigServiceImpl.validate(cfg(ConfigKeys.PAY_NOTIFY_BASE_URL), "https://shop.example.com/api");
+        SysConfigServiceImpl.validate(cfg(ConfigKeys.PAY_NOTIFY_BASE_URL), "");
+        SysConfigServiceImpl.validate(cfg(ConfigKeys.ALIPAY_ENABLED), "true");
+    }
+
     private static SysConfig cfg(String key) {
         SysConfig c = new SysConfig();
         c.setId(1L);

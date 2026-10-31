@@ -23,8 +23,9 @@ public class ConfigBatchRequest {
         @NotBlank
         private String configKey;
 
+        /** 4096：容纳 RSA 4096 位 PEM 私钥；敏感参数提交掩码 ****** 表示保持原值 */
         @NotNull
-        @Size(max = 2000)
+        @Size(max = 4096)
         private String configValue;
     }
 }

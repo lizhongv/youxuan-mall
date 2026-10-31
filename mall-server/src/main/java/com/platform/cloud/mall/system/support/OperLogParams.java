@@ -57,9 +57,22 @@ public final class OperLogParams {
         return json.length() <= MAX_LENGTH ? json : json.substring(0, MAX_LENGTH);
     }
 
-    /** 递归脱敏：字段名含 password（不区分大小写，覆盖 oldPassword / newPassword）一律替换 */
+    /**
+     * 系统参数里的密钥类键（支付私钥、APIv3 密钥、公众号 AppSecret 等）。批量修改参数的入参是
+     * {@code {configKey, configValue}}，字段名本身不敏感，只能按键名判断，所以单独处理。
+     */
+    private static final List<String> SENSITIVE_CONFIG_KEY_PARTS = List.of("private_key", "api_v3_key", "secret",
+            "password");
+
+    /**
+     * 递归脱敏：字段名含 password（不区分大小写，覆盖 oldPassword / newPassword）一律替换；
+     * 系统参数项的键名命中 {@link #SENSITIVE_CONFIG_KEY_PARTS} 时替换 configValue。
+     */
     static void mask(JsonNode node) {
         if (node instanceof ObjectNode obj) {
+            if (isSensitiveConfigItem(obj)) {
+                obj.set("configValue", TextNode.valueOf(MASK));
+            }
             Iterator<Map.Entry<String, JsonNode>> it = obj.fields();
             List<String> sensitive = new ArrayList<>();
             while (it.hasNext()) {
@@ -74,5 +87,14 @@ public final class OperLogParams {
         } else if (node instanceof ArrayNode arr) {
             arr.forEach(OperLogParams::mask);
         }
+    }
+
+    private static boolean isSensitiveConfigItem(ObjectNode obj) {
+        JsonNode key = obj.get("configKey");
+        if (key == null || !key.isTextual() || !obj.has("configValue")) {
+            return false;
+        }
+        String k = key.asText().toLowerCase(Locale.ROOT);
+        return SENSITIVE_CONFIG_KEY_PARTS.stream().anyMatch(k::contains);
     }
 }

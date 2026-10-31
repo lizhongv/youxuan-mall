@@ -57,7 +57,8 @@ class OrderStatusTest {
 
     @ParameterizedTest(name = "售后 {0} → {1} = {2}")
     @CsvSource({
-            "APPLYING, REFUNDED, true",
+            "APPLYING, REFUNDING, true",
+            "APPLYING, REFUNDED, false",
             "APPLYING, WAIT_RETURN, true",
             "APPLYING, REJECTED, true",
             "APPLYING, CANCELLED, true",
@@ -66,7 +67,11 @@ class OrderStatusTest {
             "WAIT_RETURN, CANCELLED, true",
             "WAIT_RETURN, REFUNDED, false",
             "WAIT_RETURN, REJECTED, false",
-            "RETURNING, REFUNDED, true",
+            "RETURNING, REFUNDING, true",
+            "RETURNING, REFUNDED, false",
+            "REFUNDING, REFUNDED, true",
+            "REFUNDING, CANCELLED, false",
+            "REFUNDING, REJECTED, false",
             "RETURNING, CANCELLED, false",
             "RETURNING, REJECTED, false",
             "REFUNDED, APPLYING, false",

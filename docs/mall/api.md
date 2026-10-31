@@ -53,12 +53,12 @@
 | 角色 `system/role` | CRUD；`GET /list` 全部启用角色；`GET /{id}/menus` → `[menuId]`；`PUT /{id}/menus {menuIds:[]}` | `{id, name, code, sort, status, remark, createdAt}` |
 | 菜单 `system/menu` | `GET /tree` 全部菜单树（含按钮）；POST / PUT / DELETE 同 CRUD | 字段同 MenuTree + `permission, status`；有子节点不能删 |
 | 字典 `system/dict` | CRUD（page 支持 `dictType` 筛选）；`GET /types` → `[dictType]` | `{id, dictType, label, value, sort, status, remark}` |
-| 参数 `system/config` | `GET /list` 全部；`PUT /batch {items:[{configKey, configValue}]}` | `{id, configKey, configValue, name, remark}` |
+| 参数 `system/config` | `GET /list` 全部；`PUT /batch {items:[{configKey, configValue}]}` | `{id, configKey, configValue, name, remark, sensitive}`；`sensitive=true` 的参数（私钥、密钥）已设置时 `configValue` 返回掩码 `******`、未设置返回空串，保存时提交 `******` 表示不修改；开关类参数只能为 `true/false`，`pay.notify_base_url` 须 `https://` 开头。前端按键前缀分组：`mall.`/`trade.`/`member.` 运营参数、`pay.` 支付配置、`wechat.` 微信登录（说明见 [payment.md](payment.md)） |
 | 操作日志 `system/oper-log` | `GET /page`（`username, module, success, startTime, endTime`） | `{id, username, module, action, method, uri, params, ip, success, errorMsg, costMs, createdAt}` |
 | 登录日志 `system/login-log` | `GET /page`（`userType, username, success`） | `{id, userType, username, ip, userAgent, success, message, createdAt}` |
 | 上传 `system/file/upload` | POST multipart `file`, `bizType` | `{id, url, originalName, size}` |
 
-操作日志：管理端所有 POST/PUT/DELETE 请求自动记录（切面实现，密码字段脱敏）。
+操作日志：管理端所有 POST/PUT/DELETE 请求自动记录（切面实现，密码字段脱敏；系统参数中键名含 `private_key`、`api_v3_key`、`secret` 的值脱敏）。
 
 ### 1.3 会员（权限前缀 `member:`）
 
@@ -113,9 +113,11 @@
 | PUT | `/admin/trade/order/{id}/cancel` | `{reason}`，仅待支付 |
 | GET | `/admin/trade/aftersale/page` | 筛选 `aftersaleNo, orderNo, status, type` |
 | GET | `/admin/trade/aftersale/{id}` | 售后 + 订单明细快照 |
-| PUT | `/admin/trade/aftersale/{id}/approve` | `{remark}`：仅退款 → 直接退款完成；退货退款 → WAIT_RETURN |
+| PUT | `/admin/trade/aftersale/{id}/approve` | `{remark}`：仅退款 → 原路退款（REFUNDING → REFUNDED，见 §3）；退货退款 → WAIT_RETURN |
 | PUT | `/admin/trade/aftersale/{id}/reject` | `{remark}` |
-| PUT | `/admin/trade/aftersale/{id}/receive` | 确认收到退货并退款（RETURNING → REFUNDED） |
+| PUT | `/admin/trade/aftersale/{id}/receive` | 确认收到退货并退款（RETURNING → REFUNDING → REFUNDED） |
+| GET | `/admin/trade/payment/page` | 支付流水，筛选 `payNo, orderNo, channel, status, startTime, endTime`（权限 `trade:payment:view`） |
+| POST | `/admin/trade/payment/{id}/sync` | 向渠道查单并同步结果（回调丢失、对账；权限 `trade:payment:edit`），返回最新流水 |
 | GET | `/admin/trade/review/page` | 筛选 `goodsId, rating, status, hasImage` |
 | PUT | `/admin/trade/review/{id}/reply` | `{reply}` |
 | PUT | `/admin/trade/review/{id}/status?status=` | 显示 / 隐藏 |
@@ -129,6 +131,7 @@
  items: [{id, goodsId, skuId, goodsName, pic, specText, price, quantity, totalAmount, payAmount, aftersaleStatus, reviewed}]}
 ```
 售后 VO：`{id, aftersaleNo, orderId, orderNo, orderItemId, memberId, memberNickname, type, status, statusText, reason, description, images[], amount, quantity, auditRemark, auditTime, returnCompany, returnNo, refundTime, createdAt, item: OrderItem}`
+支付流水 VO：`{id, payNo, orderId, orderNo, memberId, channel(BALANCE|WECHAT|ALIPAY|MOCK), channelText, tradeType(WECHAT_JSAPI|WECHAT_H5|ALIPAY_WAP|空), amount, status(WAITING|SUCCESS|CLOSED|REFUNDED|REFUNDED_AFTER_CLOSE), statusText, channelNo, paidAt, remark, createdAt}`
 评价 VO：`{id, orderId, goodsId, goodsName, goodsPic, memberId, nickname, avatar, specText, rating, content, images[], anonymous, reply, replyTime, status, createdAt}`
 
 ### 1.7 统计 `/admin/stats`（权限 `stats:view`）
@@ -156,6 +159,16 @@
 | POST | `/app/auth/reset-password` | `{mobile, code, password}` | – |
 
 验证码 6 位，5 分钟有效，同一手机号 60 秒内只能发一次，错误 5 次作废。
+
+**微信公众号网页授权登录**（仅微信内置浏览器；需配置 `wechat.mp.app_id / app_secret`）：
+
+| 方法 | 路径 | 入参 | 出参 |
+|---|---|---|---|
+| GET | `/app/auth/wechat/authorize-url?redirect=` | `redirect`：授权后回跳的商城页面完整地址（域名须在公众号「网页授权域名」中） | `{url, state}`，前端 `location.href = url` |
+| POST | `/app/auth/wechat/login` | `{code, state}`（回跳 URL 上的参数；state 一次性、10 分钟有效） | 已绑定：`{needBind: false, accessToken, refreshToken, expiresIn}`；未绑定：`{needBind: true, bindToken}`（10 分钟有效） |
+| POST | `/app/auth/wechat/bind` | `{bindToken, mobile, code}`，验证码用 `scene=LOGIN` 发送；手机号未注册自动注册 | `{accessToken, refreshToken, expiresIn}` |
+
+使用 `snsapi_base` 静默授权，只取 openid（存 `mbr_social`，同时用于公众号 JSAPI 支付）；一个微信只能绑一个账号、一个账号只能绑一个微信。
 
 ### 2.2 公开浏览 `/app/public`
 
@@ -215,7 +228,8 @@
 | POST | `/app/order` | 提交订单（需幂等头），入参 `OrderSubmit`，出参 `{orderId, orderNo, payAmount, payExpireAt}` |
 | GET | `/app/order/page?status=` | 我的订单；status 额外支持 `TO_REVIEW`（已完成未评价） |
 | GET | `/app/order/{id}` | 订单详情（同管理端订单 VO，另含 `logs[]`） |
-| POST | `/app/order/{id}/pay` | `{payType: BALANCE\|MOCK}`（需幂等头），返回 `{paid: true}` |
+| POST | `/app/order/{id}/pay` | `{payType: BALANCE\|WECHAT_JSAPI\|WECHAT_H5\|ALIPAY_WAP\|MOCK}`（需幂等头），出参见下「支付」 |
+| GET | `/app/order/{id}/pay-status` | 支付结果轮询 `{orderId, status, statusText, paid, payType, payTime}`；本地未支付时服务端主动向渠道查单（同一支付单 3 秒内只查一次） |
 | PUT | `/app/order/{id}/cancel` | `{reason}`，仅待支付 |
 | PUT | `/app/order/{id}/receive` | 确认收货，仅待收货 |
 | DELETE | `/app/order/{id}` | 删除订单（仅已完成 / 已取消，只对买家隐藏） |
@@ -238,6 +252,37 @@
  address: Address | null, goodsAmount, freightAmount, couponAmount, discountAmount, payAmount,
  memberCouponId, coupons: [CouponOption], balance}
 ```
+
+**支付**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/app/pay/channels?orderId=&inWechat=` | 收银台可选支付方式 `[{type, name, icon, enabled, reason}]`；`inWechat` 由前端按 UA 是否含 `MicroMessenger` 传入 |
+| POST | `/app/order/{id}/pay` | 发起支付 |
+| GET | `/app/order/{id}/pay-status` | 从渠道返回后轮询 |
+
+渠道列表规则：后台开关关闭的方式不返回；开启但不可用的返回 `enabled=false` 与 `reason`。
+`BALANCE` 余额不足时不可用；`WECHAT_JSAPI` 须在微信内且会员已微信授权（有 openid）；`WECHAT_H5` 在微信内不可用；`ALIPAY_WAP` 在微信内不可用（提示在浏览器打开）；`MOCK` 仅 `MALL_PAY_MOCK_ENABLED=true` 时返回。`icon` 取值 `balance / wechat / alipay / mock`。
+
+`pay` 出参 `{paid, payType, payNo?, payParams?}`：
+
+| payType | 出参 | 前端调起 |
+|---|---|---|
+| `BALANCE` / `MOCK` | `{paid: true}` | 直接跳支付成功 |
+| `WECHAT_JSAPI` | `{paid: false, payNo, payParams: {appId, timeStamp, nonceStr, package, signType, paySign}}` | `WeixinJSBridge.invoke('getBrandWCPayRequest', payParams, cb)`，回调后轮询 `pay-status` |
+| `WECHAT_H5` | `{paid: false, payNo, payParams: {h5Url}}` | `location.href = h5Url + '&redirect_url=' + encodeURIComponent(结果页)`，回到结果页后轮询 |
+| `ALIPAY_WAP` | `{paid: false, payNo, payParams: {payUrl}}` | `location.href = payUrl`，支付后支付宝跳回 `pay.return_url`，结果页轮询 |
+
+- 同一订单重复发起：同方式、同金额、4 分钟内发起过的预支付单直接复用（返回同一 `payNo` 与参数）；其余待支付单先向渠道查单（已付款则直接落账并提示「订单已支付」），再关闭渠道订单。
+- 渠道订单失效时间 = 订单支付截止时间 `payExpireAt`。
+
+**支付回调**（公开，渠道调用；地址 = `pay.notify_base_url` + 路径，必须 HTTPS）：
+
+| 路径 | 说明 | 响应 |
+|---|---|---|
+| `POST /app/public/pay/notify/wechat` | 微信支付结果通知（APIv3，SDK 验签 + 解密，核对商户号、AppID、金额） | 成功 204 无应答体；失败 4XX/5XX + `{"code":"FAIL","message":"…"}` |
+| `POST /app/public/pay/notify/wechat-refund` | 微信退款结果通知 | 同上 |
+| `POST /app/public/pay/notify/alipay` | 支付宝异步通知（RSA2 验签，核对 app_id、金额） | 纯文本 `success` / `fail` |
 
 价格计算顺序：商品金额 → 会员折扣（discountAmount，秒杀商品不参与）→ 优惠券（按折后适用金额计算）→ 运费（按折后金额判断包邮）→ 应付 = 商品 − 折扣 − 券 + 运费（最低 0.01）。优惠按金额比例分摊到明细的 `payAmount`，尾差计入最后一行。
 
@@ -270,14 +315,29 @@ PENDING_PAY ──支付──▶ PENDING_DELIVERY ──发货──▶ DELIVER
 **售后**
 
 ```
-APPLYING ─同意(仅退款)─▶ REFUNDED
-APPLYING ─同意(退货退款)─▶ WAIT_RETURN ─买家填物流─▶ RETURNING ─商家确认收货─▶ REFUNDED
+APPLYING ─同意(仅退款)─▶ REFUNDING ─退款到账─▶ REFUNDED
+APPLYING ─同意(退货退款)─▶ WAIT_RETURN ─买家填物流─▶ RETURNING ─商家确认收货─▶ REFUNDING ─退款到账─▶ REFUNDED
 APPLYING ─拒绝─▶ REJECTED        APPLYING / WAIT_RETURN ─买家撤销─▶ CANCELLED
 ```
-- 退款原路退回：余额支付退回余额；MOCK 支付视为线下退款，只记录。退款成功回补库存（未发货时）。
+- `REFUNDING` 退款中：已向渠道发起退款、等待结果；占用可退额度，不能撤销，订单不能发货。
+- 退款原路退回（按订单 `payType`）：
+  - `BALANCE` 退回余额，同一事务内直接 `REFUNDED`；
+  - `ALIPAY` 调 `alipay.trade.refund`，同步返回资金已变动即 `REFUNDED`，否则保持 `REFUNDING` 由补偿任务查询；
+  - `WECHAT` 调 v3 退款，通常 `PROCESSING`，由退款回调 `/app/public/pay/notify/wechat-refund` 或补偿任务推进为 `REFUNDED`；渠道退款失败（如 ABNORMAL）保持 `REFUNDING`，审核备注追加「【退款失败：原因】」，需到商户平台处理；
+  - `MOCK` 不经渠道，直接 `REFUNDED`，审核备注追加「【需线下处理】」。
+- 渠道退款单号 = 售后单号，重复发起时渠道按单号幂等。退款完成（`REFUNDED`）时回补库存（未发货时）。
 - 明细 `aftersaleStatus`：申请中 APPLYING，退款完成 REFUNDED，被拒或撤销恢复 NONE。
 
-**定时任务**（每分钟）：关闭超时未支付订单；自动确认收货；过期优惠券置为 EXPIRED。
+**支付流水**（`trd_payment.status`）
+
+```
+WAITING ─回调 / 查单确认已付─▶ SUCCESS ─整单退完─▶ REFUNDED
+WAITING ─换支付方式 / 订单关闭后补偿关单 / 渠道已关闭─▶ CLOSED
+WAITING / CLOSED ─到账时订单已关闭、已被其他支付单付清或金额已变更─▶ REFUNDED_AFTER_CLOSE（自动原路退款）
+```
+
+**定时任务**（每分钟）：关闭超时未支付订单；自动确认收货；过期优惠券置为 EXPIRED；
+支付补偿（第 45 秒，分布式锁）：5 分钟前发起仍 `WAITING` 的微信 / 支付宝流水主动查单（已付 → 落账或关单后到账自动退款；订单已关闭仍未付 → 关闭渠道订单），退款中超过 5 分钟的售后单查询渠道退款结果。
 
 ---
 
@@ -294,6 +354,7 @@ APPLYING ─拒绝─▶ REJECTED        APPLYING / WAIT_RETURN ─买家撤销�
 | | 品牌管理 `/goods/brand` | `goods:brand:view` | `goods:brand:edit` |
 | 订单 | 订单列表 `/trade/order`、订单详情 `/trade/order/:id`（隐藏） | `trade:order:view` | `trade:order:edit`（改价/备注/取消）、`trade:order:deliver`（发货） |
 | | 售后处理 `/trade/aftersale` | `trade:aftersale:view` | `trade:aftersale:audit` |
+| | 支付流水 `/trade/payment` | `trade:payment:view` | `trade:payment:edit`（手动查单） |
 | | 评价管理 `/trade/review` | `trade:review:view` | `trade:review:edit` |
 | 营销 | 优惠券 `/marketing/coupon` | `marketing:coupon:view` | `marketing:coupon:edit` |
 | | 秒杀活动 `/marketing/seckill` | `marketing:seckill:view` | `marketing:seckill:edit` |
@@ -328,7 +389,8 @@ APPLYING ─拒绝─▶ REJECTED        APPLYING / WAIT_RETURN ─买家撤销�
 | 运费 | 是否包邮按会员折扣后、用券前的金额判断，用券不会导致重新收运费 |
 | 改价 | `adjustAmount` 为订单总调整额（覆盖上次），按比例重新分摊到明细 |
 | 售后与发货 | 有进行中售后的订单不能发货，也暂停自动确认收货 |
-| 支付 | `pay` 返回 `{paid}`；接入微信/支付宝时新增 `PayChannel` 实现，回调走 `/app/public/pay/notify/{channel}` 并调用 `PayService.onPaid(payNo, channelNo)`（重复通知幂等） |
+| 支付 | 渠道实现 `PayChannel`（同步）/ `AsyncPayChannel`（下单、查单、关单、查退款）；回调、轮询查单、补偿任务、后台查单统一走 `PaySettlementService.settle`：金额以分比较、流水终态幂等、订单待付款时调用 `PayService.onPaid` 落账，否则自动原路退款并标记 `REFUNDED_AFTER_CLOSE`（错误日志 + 订单日志）。支付配置存 `sys_config`（`pay.*`、`wechat.*`），后台修改后不重启生效（SDK 客户端按配置快照重建），详见 [payment.md](payment.md) |
+| 微信登录 | 公众号网页授权 `snsapi_base`；openid 存 `mbr_social(platform=WECHAT_MP)`，唯一索引 `platform+openid`、`member_id+platform`；令牌与密码登录同一签发方法 |
 | 会员资料 | 额外返回 `hasPassword`；验证码注册的会员首次设置密码时可不传 `oldPassword` |
 | 收藏 / 足迹项 | `{id(商品ID), name, pic, price, originalPrice, sales, onSale, favoritedAt / browsedAt}`；收藏上限 500，足迹保留最近 200 条 |
 | 令牌时效 | access 2 小时、refresh 7 天且每次刷新换新；冻结、停用、调权限在 access 过期或刷新时生效 |
