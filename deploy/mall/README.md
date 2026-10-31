@@ -67,7 +67,7 @@ mall/
 | 启动检查 | JWT 密钥为仓库默认值 / 占位值 / < 32 字节，或数据库、Redis 密码为 `change-me…` / 弱口令时**拒绝启动**，日志里逐条列出原因 | 只打印警告 |
 
 - 新装主机：`remote-up.sh / remote-up.ps1` 首次运行会生成随机密钥写入 `.env`，`MALL_PROFILE=prod`，可直接通过启动检查。
-- **演示机（电脑 A）**：由负责人在其 `.env` 中设置 `MALL_PROFILE=demo`、`MALL_SMS_DEV_MODE=true`、`MALL_PAY_MOCK_ENABLED=true`，然后 `docker compose up -d server`。
+- **演示机**：在其 `.env` 中设置 `MALL_PROFILE=demo`、`MALL_SMS_DEV_MODE=true`、`MALL_PAY_MOCK_ENABLED=true`，然后 `docker compose up -d server`。
   旧版 `.env` 没有 `MALL_PROFILE`，升级后会按 prod 运行（模拟支付与验证码回显失效、冒烟测试失败），这是有意的安全默认值。
 - demo 模式的默认值（演示 JWT 密钥等）是公开的，**不要用 demo 模式对公网营业**。
 - 本机开发：`MALL_PROFILE=demo` 启动即可使用 `application-demo.yml` 中的开发默认值。

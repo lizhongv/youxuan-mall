@@ -1,6 +1,6 @@
 """商城部署后冒烟测试：从浏览、注册、下单、支付、发货、收货、评价到售后退款跑一遍完整链路。
 
-用法：python scripts/smoke_test.py http://192.168.0.100:8090 [--admin admin] [--password admin123]
+用法：python scripts/smoke_test.py http://localhost:8090 [--admin admin] [--password admin123]
 依赖：httpx（pip install httpx）。只读写演示数据和本次新注册的会员，不影响已有数据。
 """
 import argparse

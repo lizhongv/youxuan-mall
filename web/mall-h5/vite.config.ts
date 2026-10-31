@@ -6,7 +6,7 @@ import { fileURLToPath, URL } from 'node:url'
 
 // 开发代理：默认转发到已部署环境的 Nginx（保留 /api 前缀）；
 // 直连本地服务端时设 VITE_PROXY_TARGET=http://localhost:8081 VITE_PROXY_DIRECT=1，由代理去掉 /api 前缀
-const target = process.env.VITE_PROXY_TARGET || 'http://192.168.0.100:8090'
+const target = process.env.VITE_PROXY_TARGET || 'http://localhost:8090'
 const direct = process.env.VITE_PROXY_DIRECT === '1'
 
 export default defineConfig({

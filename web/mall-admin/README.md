@@ -31,7 +31,7 @@ npm run dev                                    # http://localhost:5173/console/
 VITE_PROXY_TARGET=http://localhost:8081 VITE_PROXY_DIRECT=1 npm run dev   # 直连本地服务端
 ```
 
-开发代理把 `/api` 与 `/uploads` 转发到 `VITE_PROXY_TARGET`，默认已部署环境的 Nginx `http://192.168.0.100:8090`；直连本地服务端时加 `VITE_PROXY_DIRECT=1` 去掉 `/api` 前缀。
+开发代理把 `/api` 与 `/uploads` 转发到 `VITE_PROXY_TARGET`，默认本机部署的 Nginx `http://localhost:8090`；直连本地服务端时加 `VITE_PROXY_DIRECT=1` 去掉 `/api` 前缀。
 
 ## 构建
 

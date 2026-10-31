@@ -11,41 +11,24 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>gateway</artifactId>
-    <name>gateway</name>
-    <description>Spring Cloud Gateway：统一入口 :8000，从 Nacos 发现 service，路由到 lb://</description>
+    <artifactId>bootstrap-app</artifactId>
+    <name>bootstrap-app</name>
+    <description>开发期单体聚合：依赖 auth-service + goods-service，跑全部业务</description>
 
     <dependencies>
-        <!-- Gateway 走 WebFlux 栈，不能与 spring-boot-starter-web 共存，故不依赖 starter-common -->
+        <!-- 业务服务（Phase 1 内是 jar，Phase 2 拆出后会变成独立 SpringBoot 进程） -->
         <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-gateway</artifactId>
-        </dependency>
-        <!-- Nacos 服务发现 -->
-        <dependency>
-            <groupId>com.alibaba.cloud</groupId>
-            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
-        </dependency>
-        <!-- LoadBalancer：lb:// 协议解析 -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
-        </dependency>
-        <!-- bootstrap.yml 支持 -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-bootstrap</artifactId>
-        </dependency>
-        <!-- Sentinel：网关层流控（按 route id 限 QPS） -->
-        <dependency>
-            <groupId>com.alibaba.cloud</groupId>
-            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+            <groupId>com.platform.cloud</groupId>
+            <artifactId>auth-service</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.alibaba.csp</groupId>
-            <artifactId>sentinel-spring-cloud-gateway-adapter</artifactId>
+            <groupId>com.platform.cloud</groupId>
+            <artifactId>goods-service</artifactId>
+            <version>${project.version}</version>
         </dependency>
-        <!-- Actuator 健康检查（Nacos 上报用）+ 路由可视化端点 -->
+
+        <!-- Actuator + Prometheus 指标 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
@@ -54,6 +37,37 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+
+        <!-- DataSource：MySQL + Druid + Flyway（schema 管理在本模块） -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>druid-spring-boot-3-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
+
+        <!-- 测试 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -68,7 +82,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <mainClass>com.platform.cloud.gateway.GatewayApplication</mainClass>
+                    <mainClass>com.platform.cloud.bootstrap.BootstrapApplication</mainClass>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>
@@ -79,7 +93,9 @@
                 <executions>
                     <execution>
                         <id>repackage</id>
-                        <goals><goal>repackage</goal></goals>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

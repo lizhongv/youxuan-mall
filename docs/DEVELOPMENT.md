@@ -7,7 +7,7 @@
 ## 1. 目录结构
 
 ```
-platform-cloud/
+youxuan-mall/
 ├── mall-server/                 商城服务端（模块化单体，可商用主产品）
 │   └── src/main/java/com/platform/mall/
 │       ├── MallApplication.java
@@ -23,7 +23,7 @@ platform-cloud/
 ├── web/mall-admin/              管理后台：Vue 3 + TS + Vite + Element Plus
 ├── web/mall-h5/                 移动商城：Vue 3 + TS + Vite + Vant 4
 ├── starter/                     公共 starter：统一响应、异常、MyBatis、JWT、缓存
-├── service/ infra/              微服务演进实验（Nacos / Gateway / RocketMQ / ES），不参与商城部署
+├── labs/                        微服务演进实验（Nacos / Gateway / RocketMQ / ES），不参与商城部署
 ├── deploy/mall/                 商城一键部署：docker-compose + nginx + 脚本
 ├── scripts/                     冒烟测试、截图、发布脚本
 └── docs/                        设计、接口、部署文档

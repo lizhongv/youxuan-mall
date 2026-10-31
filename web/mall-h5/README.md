@@ -41,7 +41,7 @@ src/
 
 ```bash
 npm install
-# 后端地址默认 http://192.168.0.100:8090，可覆盖：
+# 后端地址默认 http://localhost:8090，可覆盖：
 VITE_PROXY_TARGET=http://localhost:8081 VITE_PROXY_DIRECT=1 npm run dev   # 直连本地服务端（默认转发到已部署环境 Nginx）
 ```
 

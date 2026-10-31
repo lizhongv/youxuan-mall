@@ -21,25 +21,14 @@
         <module>starter/platform-starter-mybatis</module>
         <module>starter/platform-starter-cache</module>
         <module>starter/platform-starter-security</module>
-        <module>infra/gateway</module>
-        <module>service/auth-service</module>
-        <module>service/goods-service</module>
-        <module>service/order-service</module>
-        <module>bootstrap-app</module>
         <!-- 商城主产品：模块化单体，可独立部署 -->
         <module>mall-server</module>
-        <!-- Phase 2 真正拆服务后还会加：
-        <module>infra/gateway</module>
-        <module>service/user-service</module>
-        <module>service/stock-service</module>
-        <module>service/cart-service</module>
-        <module>service/order-service</module>
-        <module>service/pay-service</module>
-        <module>service/promo-service</module>
-        <module>service/search-service</module>
-        <module>bff/admin-bff</module>
-        <module>bff/shop-bff</module>
-        -->
+        <!-- 微服务演进实验（Nacos / Gateway / RocketMQ / ES / ShardingSphere），不参与商城部署，见 labs/NOTES.md -->
+        <module>labs/infra/gateway</module>
+        <module>labs/service/auth-service</module>
+        <module>labs/service/goods-service</module>
+        <module>labs/service/order-service</module>
+        <module>labs/bootstrap-app</module>
     </modules>
 
     <!-- 版本锁定矩阵：Spring Boot 3.3.5 / Spring Cloud 2023.0.3 / Spring Cloud Alibaba 2023.0.3.2 -->

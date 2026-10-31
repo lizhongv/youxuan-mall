@@ -1,4 +1,4 @@
-# 优选商城 platform-cloud
+# 优选商城 YouXuan Mall
 
 > 开箱即用的单店铺电商系统：移动商城 + 管理后台 + 服务端，一条命令部署到任意装有 Docker 的服务器。
 
@@ -26,6 +26,10 @@
 第三方接入（后台填参数即可启用，接入说明见 [支付](docs/mall/payment.md)、[短信 / 存储 / 物流](docs/mall/integration.md)）：微信支付 APIv3、支付宝、微信公众号登录、阿里云 / 腾讯云短信、OSS / COS / MinIO / 七牛、快递100。
 
 ## 快速开始
+
+```bash
+git clone https://github.com/lizhongv/youxuan-mall.git && cd youxuan-mall
+```
 
 **部署到服务器**（需要 Docker；开发机需要 JDK 17、Node 18+、Git Bash）：
 
@@ -67,7 +71,7 @@ cd web/mall-h5 && npm install && npm run dev      # 商城 http://localhost:5174
                           └── /api/ ──▶ mall-server :8081 ──▶ MySQL 8 / Redis 7
 ```
 
-服务端是**模块化单体**：按领域分包，领域之间只通过 `*/api/*Api` 接口调用，不共享 Mapper。单机即可承载中小店铺，日后可按领域整体拆为微服务（`service/`、`infra/` 目录保留了 Nacos / Gateway / RocketMQ / ES 的拆分实验）。
+服务端是**模块化单体**：按领域分包，领域之间只通过 `*/api/*Api` 接口调用，不共享 Mapper。单机即可承载中小店铺，日后可按领域整体拆为微服务（`labs/` 目录保留了 Nacos / Gateway / RocketMQ / ES 的拆分实验）。
 
 | 领域 | 职责 |
 |---|---|
@@ -93,7 +97,7 @@ cd web/mall-h5 && npm install && npm run dev      # 商城 http://localhost:5174
 ## 项目结构
 
 ```
-platform-cloud/
+youxuan-mall/
 ├── mall-server/          商城服务端（Spring Boot 3.3 + MyBatis-Plus + Flyway）
 ├── web/mall-admin/       管理后台（Vue 3 + TypeScript + Element Plus + ECharts）
 ├── web/mall-h5/          移动商城（Vue 3 + TypeScript + Vant 4）
@@ -101,7 +105,7 @@ platform-cloud/
 ├── deploy/mall/          Docker Compose 部署、Nginx 配置、发布脚本、演示图片
 ├── scripts/              冒烟测试、演示图片生成
 ├── docs/                 开发规范、接口契约、截图
-└── service/ infra/ bootstrap-app/   微服务演进实验（不参与商城部署）
+└── labs/                 微服务演进实验：Nacos / Gateway / RocketMQ / ES / ShardingSphere（不参与商城部署，见 labs/NOTES.md）
 ```
 
 ## 开发
@@ -119,9 +123,9 @@ platform-cloud/
 - [ ] 营销：满减满折、积分抵扣与签到、余额充值、拼团、砍价、分销
 - [ ] 首页 DIY 装修、消息通知（短信 / 订阅消息 / 后台新订单提醒）
 - [ ] 订单导出、批量发货、电子面单；商品导入导出、回收站、库存预警
-- [ ] 流量与转化统计；Elasticsearch 商品搜索（实验代码见 `service/goods-service`）
+- [ ] 流量与转化统计；Elasticsearch 商品搜索（实验代码见 `labs/service/goods-service`）
 
 ## 贡献与许可
 
 提交前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
-本项目基于 Apache License 2.0 发布；业务模型参考自 [微同商城 platform-wxshop](https://gitee.com/fuyang_lipengjun/platform)（本地归档于 `code/_archive/platform`）。主要第三方依赖：Spring Boot、MyBatis-Plus、Knife4j、Hutool（Apache 2.0），Vue、Element Plus、Vant、ECharts、wangEditor（MIT / Apache 2.0）。
+本项目基于 Apache License 2.0 发布；业务模型参考自 [微同商城 platform-wxshop](https://gitee.com/fuyang_lipengjun/platform)。主要第三方依赖：Spring Boot、MyBatis-Plus、Knife4j、Hutool（Apache 2.0），Vue、Element Plus、Vant、ECharts、wangEditor（MIT / Apache 2.0）。
