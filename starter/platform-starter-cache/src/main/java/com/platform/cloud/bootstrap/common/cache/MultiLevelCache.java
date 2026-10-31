@@ -41,7 +41,7 @@ public class MultiLevelCache implements Cache {
             log.debug("[{}] L1 hit  key={}", name, key);
             return v;
         }
-        v = l2.get(key);
+        v = l2Get(key);
         if (v != null) {
             l2Hits.increment();
             log.debug("[{}] L2 hit  key={} → 回填 L1", name, key);
@@ -78,14 +78,35 @@ public class MultiLevelCache implements Cache {
     @Override
     public void put(@NonNull Object key, Object value) {
         l1.put(key, value);
-        l2.put(key, value);
+        try {
+            l2.put(key, value);
+        } catch (RuntimeException e) {
+            // Redis 不可用时只少了一层缓存，不影响本次结果返回
+            log.warn("[{}] L2 写入失败 key={}: {}", name, key, e.getMessage());
+        }
         log.debug("[{}] put      key={}", name, key);
+    }
+
+    /**
+     * 读 L2；Redis 异常或反序列化失败（含类型白名单拒绝）当作未命中，让调用方回源，而不是让接口 500。
+     */
+    private ValueWrapper l2Get(Object key) {
+        try {
+            return l2.get(key);
+        } catch (RuntimeException e) {
+            log.warn("[{}] L2 读取失败，按未命中处理 key={}: {}", name, key, e.getMessage());
+            return null;
+        }
     }
 
     @Override
     public void evict(@NonNull Object key) {
         l1.evict(key);
-        l2.evict(key);
+        try {
+            l2.evict(key);
+        } catch (RuntimeException e) {
+            log.error("[{}] L2 失效失败，可能短时读到旧数据 key={}: {}", name, key, e.getMessage());
+        }
         invalidator.broadcast(name, key);
         log.debug("[{}] evict    key={} (broadcast to other nodes)", name, key);
     }
@@ -93,7 +114,11 @@ public class MultiLevelCache implements Cache {
     @Override
     public void clear() {
         l1.clear();
-        l2.clear();
+        try {
+            l2.clear();
+        } catch (RuntimeException e) {
+            log.error("[{}] L2 清空失败，可能短时读到旧数据: {}", name, e.getMessage());
+        }
         invalidator.broadcast(name, null);
     }
 

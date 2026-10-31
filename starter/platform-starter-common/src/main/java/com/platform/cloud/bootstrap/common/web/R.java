@@ -54,6 +54,11 @@ public class R<T> implements Serializable {
         return build(code, msg, null);
     }
 
+    /** 失败但需要带结构化提示给前端，如登录失败时的 {needCaptcha: true} */
+    public static <T> R<T> fail(int code, String msg, T data) {
+        return build(code, msg, data);
+    }
+
     private static <T> R<T> build(int code, String msg, T data) {
         R<T> r = new R<>();
         r.code = code;

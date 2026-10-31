@@ -25,6 +25,19 @@
 ### 变更
 - 快递公司字典 `express_company` 的 value 改为快递100 编码（label 不变），历史订单按中文名兼容。
 - 生产模式（`mall.sms.dev-mode=false`）下短信渠道为 LOG 时发送失败并记错误日志，不再静默丢弃。
+## [未发布]
+
+### 安全
+- 运行模式 `MALL_PROFILE`（默认 `prod`）：prod 强制关闭模拟支付、验证码回显、接口文档；JWT 密钥与数据库 / Redis 密码为默认值、占位值或弱口令时拒绝启动。
+- 迁移 `V5__security.sql`：注册赠送余额默认 0；管理员 `must_change_password` / `pwd_changed_at` / `token_version`；会员 `pwd_changed_at` / `token_version`。
+- admin 初始密码与被他人新建 / 重置的密码首次登录强制修改（业务码 40301）。
+- 非超级管理员不能分配 / 移除超管角色、不能修改或重置超管账号。
+- 令牌版本号：改密、重置密码、冻结会员、停用管理员、调整角色后旧令牌立即失效；登出同时作废 refresh；refresh 一次性（SET NX）。
+- 后台与商城端图形验证码；登录按「账号 + IP」原子计数锁定、失败 2 次后要验证码、IP 限流；短信发送前须过图形验证码，新增 IP / 全站频控，不再泄露手机号是否注册。
+- 上传校验文件头；会员上传限频；`/uploads/` 加 nosniff 与 CSP；公告富文本服务端清洗（`HtmlSanitizer`）。
+- 客户端 IP 统一只信任 Nginx 设置的 `X-Real-IP`；Nginx 认证接口 `limit_req` 与页面安全头。
+- Redis 缓存反序列化改为类型白名单；缓存、幂等在 Redis 故障时降级；未知异常不再把异常信息返回前端。
+- 操作日志对令牌、验证码、密钥字段脱敏。
 
 ## [1.0.0] - 2026-10-31
 

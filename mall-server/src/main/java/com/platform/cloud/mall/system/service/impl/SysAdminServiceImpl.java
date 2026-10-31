@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.cloud.bootstrap.common.exception.BusinessException;
 import com.platform.cloud.bootstrap.common.web.PageVO;
 import com.platform.cloud.mall.common.security.SecurityUtils;
+import com.platform.cloud.mall.common.security.TokenVersionStore;
+import com.platform.cloud.mall.common.security.UserType;
 import com.platform.cloud.mall.common.util.MaskUtils;
 import com.platform.cloud.mall.system.dto.AdminQuery;
 import com.platform.cloud.mall.system.dto.AdminSaveRequest;
@@ -38,6 +40,13 @@ import java.util.stream.Collectors;
 
 /**
  * 管理员维护。
+ * <p>
+ * 防提权规则（非超级管理员即使有 system:admin 权限也不能越过）：
+ * <ul>
+ *   <li>不能分配或移除 super_admin 角色；</li>
+ *   <li>不能修改、停用、删除超级管理员账号（含内置 admin），不能重置它们的密码。</li>
+ * </ul>
+ * 停用、调整角色、重置密码后自增令牌版本号，该管理员已签发的令牌立即失效。
  */
 @Service
 @RequiredArgsConstructor
@@ -47,6 +56,7 @@ public class SysAdminServiceImpl implements SysAdminService {
     private final SysAdminRoleMapper adminRoleMapper;
     private final SysRoleMapper roleMapper;
     private final PasswordEncoder passwordEncoder;
+    private final TokenVersionStore versionStore;
 
     @Override
     public PageVO<AdminVO> page(AdminQuery q) {
@@ -81,6 +91,7 @@ public class SysAdminServiceImpl implements SysAdminService {
         }
         checkUsernameUnique(username);
         List<Long> roleIds = validRoleIds(req.getRoleIds());
+        checkSuperRoleChange(List.of(), roleIds);
 
         SysAdmin admin = new SysAdmin();
         admin.setUsername(username);
@@ -92,6 +103,9 @@ public class SysAdminServiceImpl implements SysAdminService {
         admin.setStatus(req.getStatus() == null ? SystemConstants.ENABLED : req.getStatus());
         admin.setRemark(Objects.toString(req.getRemark(), ""));
         admin.setLastLoginIp("");
+        // 密码由创建人设定，本人首次登录必须改掉，创建人不应长期知道他人的密码
+        admin.setMustChangePassword(1);
+        admin.setTokenVersion(0);
         adminMapper.insert(admin);
         saveRoles(admin.getId(), roleIds);
         return admin.getId();
@@ -101,8 +115,13 @@ public class SysAdminServiceImpl implements SysAdminService {
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, AdminSaveRequest req) {
         SysAdmin admin = require(id);
+        checkCanManage(admin, "修改");
         if (req.getStatus() != null && req.getStatus() == SystemConstants.DISABLED) {
             checkProtected(admin, "停用");
+        }
+        List<Long> newRoleIds = req.getRoleIds() == null ? null : validRoleIds(req.getRoleIds());
+        if (newRoleIds != null) {
+            checkSuperRoleChange(currentRoleIds(id), newRoleIds);
         }
         // 用户名是登录凭据且出现在操作日志里，创建后不允许修改，req.username 在修改时忽略
         adminMapper.update(null, new LambdaUpdateWrapper<SysAdmin>()
@@ -115,13 +134,20 @@ public class SysAdminServiceImpl implements SysAdminService {
                 .set(SysAdmin::getUpdatedAt, LocalDateTime.now())
                 .set(SysAdmin::getUpdatedBy, SecurityUtils.currentUserIdOrNull())
                 .eq(SysAdmin::getId, id));
-        if (req.getRoleIds() != null) {
-            List<Long> roleIds = validRoleIds(req.getRoleIds());
+        boolean revoke = req.getStatus() != null && req.getStatus() == SystemConstants.DISABLED;
+        if (newRoleIds != null) {
             if (SystemConstants.ADMIN_USERNAME.equals(admin.getUsername())) {
-                ensureSuperAdminKept(roleIds);
+                ensureSuperAdminKept(newRoleIds);
+            }
+            if (!new LinkedHashSet<>(newRoleIds).equals(new LinkedHashSet<>(currentRoleIds(id)))) {
+                // 令牌里带着角色与权限码，角色变了必须让旧令牌失效，否则被降权的人在令牌过期前仍有旧权限
+                revoke = true;
             }
             adminRoleMapper.delete(new LambdaQueryWrapper<SysAdminRole>().eq(SysAdminRole::getAdminId, id));
-            saveRoles(id, roleIds);
+            saveRoles(id, newRoleIds);
+        }
+        if (revoke) {
+            versionStore.revokeAll(UserType.ADMIN, id);
         }
     }
 
@@ -129,6 +155,7 @@ public class SysAdminServiceImpl implements SysAdminService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         SysAdmin admin = require(id);
+        checkCanManage(admin, "删除");
         checkProtected(admin, "删除");
         // uk_username 包含 deleted 列，逻辑删除后改名释放用户名，否则同名账号删第二次会撞唯一键
         adminMapper.update(null, new LambdaUpdateWrapper<SysAdmin>()
@@ -136,6 +163,7 @@ public class SysAdminServiceImpl implements SysAdminService {
                 .eq(SysAdmin::getId, id));
         adminMapper.deleteById(id);
         adminRoleMapper.delete(new LambdaQueryWrapper<SysAdminRole>().eq(SysAdminRole::getAdminId, id));
+        versionStore.revokeAll(UserType.ADMIN, id);
     }
 
     @Override
@@ -145,21 +173,74 @@ public class SysAdminServiceImpl implements SysAdminService {
             throw new BusinessException("状态只能是 1 或 0");
         }
         SysAdmin admin = require(id);
+        checkCanManage(admin, "停用或启用");
         if (status == SystemConstants.DISABLED) {
             checkProtected(admin, "停用");
         }
         adminMapper.update(null, new LambdaUpdateWrapper<SysAdmin>()
                 .set(SysAdmin::getStatus, status)
                 .eq(SysAdmin::getId, id));
+        if (status == SystemConstants.DISABLED) {
+            versionStore.revokeAll(UserType.ADMIN, id);
+        }
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void resetPassword(Long id, String password) {
-        require(id);
+        SysAdmin admin = require(id);
+        checkCanManage(admin, "重置密码");
         adminMapper.update(null, new LambdaUpdateWrapper<SysAdmin>()
                 .set(SysAdmin::getPassword, passwordEncoder.encode(password))
+                // 重置人知道新密码，本人登录后必须改掉
+                .set(SysAdmin::getMustChangePassword, 1)
+                .set(SysAdmin::getPwdChangedAt, LocalDateTime.now())
                 .eq(SysAdmin::getId, id));
+        versionStore.revokeAll(UserType.ADMIN, id);
+    }
+
+    /**
+     * 非超管不能管理超管账号：内置 admin 与任何持有 super_admin 角色的账号。
+     * 否则拥有 system:admin 权限的普通管理员可以重置超管密码后登录，拿到全部权限。
+     */
+    private void checkCanManage(SysAdmin target, String action) {
+        if (operatorIsSuperAdmin()) {
+            return;
+        }
+        if (SystemConstants.ADMIN_USERNAME.equals(target.getUsername()) || holdsSuperRole(target.getId())) {
+            throw new BusinessException("无权操作超级管理员账号（" + action + "）");
+        }
+    }
+
+    /** 非超管不能让任何人获得或失去 super_admin 角色 */
+    private void checkSuperRoleChange(List<Long> before, List<Long> after) {
+        if (operatorIsSuperAdmin()) {
+            return;
+        }
+        Long superRoleId = superRoleId();
+        if (superRoleId != null && before.contains(superRoleId) != after.contains(superRoleId)) {
+            throw new BusinessException("无权分配或移除超级管理员角色");
+        }
+    }
+
+    private static boolean operatorIsSuperAdmin() {
+        return SecurityUtils.hasAuthority(SecurityUtils.SUPER_ADMIN_ROLE);
+    }
+
+    private boolean holdsSuperRole(Long adminId) {
+        Long superRoleId = superRoleId();
+        return superRoleId != null && currentRoleIds(adminId).contains(superRoleId);
+    }
+
+    private Long superRoleId() {
+        SysRole superRole = roleMapper.selectOne(new LambdaQueryWrapper<SysRole>()
+                .eq(SysRole::getCode, SystemConstants.SUPER_ADMIN_CODE));
+        return superRole == null ? null : superRole.getId();
+    }
+
+    private List<Long> currentRoleIds(Long adminId) {
+        return adminRoleMapper.selectList(new LambdaQueryWrapper<SysAdminRole>().eq(SysAdminRole::getAdminId, adminId))
+                .stream().map(SysAdminRole::getRoleId).toList();
     }
 
     private void checkProtected(SysAdmin admin, String action) {

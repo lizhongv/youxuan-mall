@@ -1,5 +1,7 @@
 package com.platform.cloud.mall.member.service.impl;
 
+import com.platform.cloud.mall.common.security.TokenVersionStore;
+import com.platform.cloud.mall.common.security.UserType;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -45,6 +47,7 @@ public class MemberAdminServiceImpl implements MemberAdminService {
     private final MbrLevelMapper levelMapper;
     private final MemberAccountService accountService;
     private final AddressService addressService;
+    private final TokenVersionStore versionStore;
 
     @Override
     public PageVO<MemberAdminVO> page(MemberQuery q) {
@@ -80,6 +83,10 @@ public class MemberAdminServiceImpl implements MemberAdminService {
         memberMapper.update(null, new LambdaUpdateWrapper<MbrMember>()
                 .set(MbrMember::getStatus, status)
                 .eq(MbrMember::getId, id));
+        if (status == MemberConstants.FROZEN) {
+            // 冻结立即生效：已登录的会话全部失效，而不是等令牌自然过期
+            versionStore.revokeAll(UserType.MEMBER, id);
+        }
     }
 
     @Override

@@ -1,13 +1,13 @@
 # 商城接口约定
 
 > 前后端唯一接口契约。后端实现与前端调用都以本文为准；如需调整，先改本文再改代码。
-> 在线文档：部署后访问 `/doc.html`（Knife4j，分「管理端」「商城端」两组）。
+> 在线文档：demo 模式部署后访问 `/doc.html`（Knife4j，分「管理端」「商城端」两组）；prod 模式不提供接口文档。
 
 ## 0. 通用
 
 | 项 | 约定 |
 |---|---|
-| 响应 | `{ code, msg, data, ts, traceId }`，`code = 0` 成功；`40100` 未登录 / 令牌过期；`40300` 无权限；`60000` 业务提示（直接展示 msg） |
+| 响应 | `{ code, msg, data, ts, traceId }`，`code = 0` 成功；`40100` 未登录 / 令牌过期 / 令牌已失效；`40300` 无权限；`40301` 请先修改初始密码（见 1.1）；`40002` 需要图形验证码（`data.needCaptcha = true`）；`42900` 请求过于频繁；`50300` 服务暂不可用（Redis / 数据库故障）；`60000` 业务提示（直接展示 msg） |
 | 分页入参 | query：`page`（从 1 开始）、`size`（默认 20，最大 200）、`keyword` 及各接口筛选字段 |
 | 分页出参 | `{ records: [], total, page, size, pages }` |
 | ID | 所有 ID 为**字符串**（后端 Long 序列化为字符串） |
@@ -35,21 +35,30 @@
 
 | 方法 | 路径 | 入参 | 出参 |
 |---|---|---|---|
-| POST | `/admin/auth/login` | `{username, password}` | `{accessToken, refreshToken, expiresIn}` |
-| POST | `/admin/auth/refresh` | `{refreshToken}` | 同上 |
-| POST | `/admin/auth/logout` | – | – |
-| GET | `/admin/auth/me` | – | `{id, username, nickname, avatar, roles:[code], permissions:[code], menus: MenuTree[]}` |
+| GET | `/admin/auth/captcha` | – | `{captchaId, image}`；image 为 `data:image/png;base64,...`，2 分钟有效、一次性（demo 模式另返回 `devCode` 答案） |
+| POST | `/admin/auth/login` | `{username, password, captchaId?, captchaCode?}` | `{accessToken, refreshToken, expiresIn}` |
+| POST | `/admin/auth/refresh` | `{refreshToken}` | 同上；每个 refreshToken 只能用一次 |
+| POST | `/admin/auth/logout` | `{refreshToken?}`（请求头照常带 access 令牌） | – ；access 与 refresh 都作废 |
+| GET | `/admin/auth/me` | – | `{id, username, nickname, avatar, roles:[code], permissions:[code], menus: MenuTree[], mustChangePassword}` |
 | PUT | `/admin/auth/profile` | `{nickname, avatar, mobile, email}` | – |
-| PUT | `/admin/auth/password` | `{oldPassword, newPassword}` | – |
+| PUT | `/admin/auth/password` | `{oldPassword, newPassword}` | `{accessToken, refreshToken, expiresIn}`：改密后该账号所有旧令牌失效，前端用返回的新令牌替换本地令牌 |
 
 `MenuTree = {id, parentId, type, name, path, component, icon, sort, visible, children: MenuTree[]}`（只含 DIR/MENU，按钮权限在 permissions 中）。
-登录连续失败 5 次锁定 15 分钟。
+登录防爆破：
+- 同一 IP 每分钟最多 20 次登录尝试，超出返回 `42900`。
+- 同一账号在同一 IP **连续失败 2 次后**必须带图形验证码：缺少或错误时返回 `{code: 40002, msg, data: {needCaptcha: true}}`；
+  密码错误的响应（`60000`）也带 `data.needCaptcha`，为 true 时前端应先 `GET /admin/auth/captcha` 再显示验证码输入框。
+  同一账号在所有 IP 上累计失败 10 次后，任何 IP 登录都需要验证码。
+- 同一账号在同一 IP 连续失败 5 次锁定 15 分钟；只锁该 IP，其他 IP 上的正确登录不受影响。
+
+强制修改初始密码（prod 模式）：内置 admin 首次登录、被他人新建或重置密码的账号，`me` 返回 `mustChangePassword: true`，
+此时除 `me`、`PUT /admin/auth/password`、`logout` 外的管理端接口一律返回 `{code: 40301, msg: "请先修改初始密码"}`，前端应跳转改密页。
 
 ### 1.2 系统管理（权限前缀 `system:`）
 
 | 资源 | 接口 | 字段 / 说明 |
 |---|---|---|
-| 管理员 `system/admin` | CRUD；`PUT /{id}/status?status=`；`PUT /{id}/password {password}` 重置密码 | `{id, username, nickname, avatar, mobile, email, status, roleIds:[], roleNames:[], lastLoginAt, remark, createdAt}`；新增需 `password`；不能停用/删除自己和 admin |
+| 管理员 `system/admin` | CRUD；`PUT /{id}/status?status=`；`PUT /{id}/password {password}` 重置密码 | `{id, username, nickname, avatar, mobile, email, status, roleIds:[], roleNames:[], lastLoginAt, remark, createdAt}`；新增需 `password`；不能停用/删除自己和 admin；**非超级管理员**不能分配或移除 super_admin 角色、不能修改 / 停用 / 删除超级管理员账号、不能重置 admin 与超级管理员的密码；新建或重置密码后对方首次登录需改密；停用、调整角色、重置密码后对方已登录的令牌立即失效 |
 | 角色 `system/role` | CRUD；`GET /list` 全部启用角色；`GET /{id}/menus` → `[menuId]`；`PUT /{id}/menus {menuIds:[]}` | `{id, name, code, sort, status, remark, createdAt}` |
 | 菜单 `system/menu` | `GET /tree` 全部菜单树（含按钮）；POST / PUT / DELETE 同 CRUD | 字段同 MenuTree + `permission, status`；有子节点不能删 |
 | 字典 `system/dict` | CRUD（page 支持 `dictType` 筛选）；`GET /types` → `[dictType]` | `{id, dictType, label, value, sort, status, remark}` |
@@ -59,6 +68,7 @@
 | 上传 `system/file/upload` | POST multipart `file`, `bizType` | `{id, url, originalName, size}`；对象存储模式下 `url` 为完整 CDN / 桶域名地址 |
 | 短信测试 `system/sms/test` | `POST {mobile}`，权限 `system:config:edit` | 用验证码模板发一条随机验证码（不可用于登录），返回 `{provider}`；失败时 `msg` 为渠道错误码，如 `阿里云短信发送失败：isv.SMS_SIGNATURE_ILLEGAL` |
 | 存储测试 `system/storage/test` | `POST`，权限 `system:config:edit` | 用已保存的配置上传并删除一个探测文件，返回 `{provider, sampleUrl, elapsedMs, message}`；本地存储直接返回「无需测试」 |
+| 上传 `system/file/upload` | POST multipart `file`, `bizType` | `{id, url, originalName, size}`；只收 jpg/jpeg/png/gif/webp，文件头必须与扩展名一致 |
 
 操作日志：管理端所有 POST/PUT/DELETE 请求自动记录（切面实现，密码字段脱敏）。
 
@@ -209,14 +219,19 @@
 
 | 方法 | 路径 | 入参 | 出参 |
 |---|---|---|---|
-| POST | `/app/auth/sms-code` | `{mobile, scene: REGISTER\|LOGIN\|RESET}` | `{devCode}`（未接短信渠道时返回验证码，便于演示；接入后为空） |
+| GET | `/app/auth/captcha` | – | `{captchaId, image}`，同 `/admin/auth/captcha`（两端验证码互不通用） |
+| POST | `/app/auth/sms-code` | `{mobile, scene: REGISTER\|LOGIN\|RESET, captchaId, captchaCode}` | `{devCode}`（仅 demo 模式且未接短信渠道时返回验证码；prod 恒为空） |
 | POST | `/app/auth/register` | `{mobile, code, password, nickname?}` | `{accessToken, refreshToken, expiresIn}` |
-| POST | `/app/auth/login` | `{mobile, password}` | 同上 |
+| POST | `/app/auth/login` | `{mobile, password, captchaId?, captchaCode?}` | 同上；失败 2 次后需要图形验证码，规则同管理端（`40002` + `needCaptcha`） |
 | POST | `/app/auth/login-sms` | `{mobile, code}`（未注册自动注册） | 同上 |
-| POST | `/app/auth/refresh` | `{refreshToken}` | 同上 |
+| POST | `/app/auth/refresh` | `{refreshToken}` | 同上；每个 refreshToken 只能用一次 |
 | POST | `/app/auth/reset-password` | `{mobile, code, password}` | – |
 
-验证码 6 位，5 分钟有效，同一手机号 60 秒内只能发一次，错误 5 次作废。
+短信验证码 6 位，5 分钟有效，同一手机号 60 秒内只能发一次、每天 10 次，错误 5 次作废。
+发送前必须先 `GET /app/auth/captcha` 并带上 `captchaId, captchaCode`（图形验证码一次性，发送失败也要重新获取）；
+同一 IP 每小时 20 次、全站每分钟 60 次（可配置），超出返回 `42900`。
+为防止手机号枚举，**发送接口对已注册 / 未注册手机号一律返回成功**：注册时手机号已注册、重置密码时手机号未注册，在提交 `register` / `reset-password` 时提示。
+重置密码成功后该会员所有已登录的令牌失效。
 
 ### 2.2 公开浏览 `/app/public`
 
@@ -240,13 +255,14 @@
 |---|---|---|
 | GET | `/app/member/profile` | `{id, mobile(脱敏), nickname, avatar, gender, birthday, levelName, discount, points, growth, balance, couponCount, favoriteCount, orderCount: {PENDING_PAY, PENDING_DELIVERY, DELIVERED, TO_REVIEW, AFTERSALE}}` |
 | PUT | `/app/member/profile` | `{nickname, avatar, gender, birthday}` |
-| PUT | `/app/member/password` | `{oldPassword, newPassword}` |
+| PUT | `/app/member/password` | `{oldPassword, newPassword}` → `{accessToken, refreshToken, expiresIn}`：其他设备上的登录全部失效，前端用返回的新令牌替换本地令牌 |
 | GET/POST/PUT/DELETE | `/app/member/address`、`/app/member/address/{id}` | 列表 / 新增 / 修改 / 删除；`PUT /app/member/address/{id}/default`；`GET /app/member/address/default` |
 | GET | `/app/member/favorite/page` | 收藏商品分页（商品列表项） |
 | POST | `/app/member/favorite/{goodsId}` / DELETE 同路径 | 收藏 / 取消 |
 | GET | `/app/member/history/page` | 足迹分页；`DELETE /app/member/history` 清空 |
 | GET | `/app/member/account-log/page` | `accountType` 筛选 |
-| POST | `/app/member/upload` | 上传图片（头像、评价图），同 1.2 上传 |
+| POST | `/app/member/upload` | 上传图片（头像、评价图），同 1.2 上传；每个会员每分钟 20 次、每天 200 次 |
+| POST | `/app/member/logout` | `{refreshToken?}`：access 与 refresh 都作废 |
 
 浏览商品详情时若已登录，自动记录足迹（由 `/app/public/goods/{id}` 写入）。
 
@@ -321,6 +337,8 @@
 | PUT | `/app/aftersale/{id}/cancel` | 撤销（仅 APPLYING / WAIT_RETURN） |
 | PUT | `/app/aftersale/{id}/return` | `{returnCompany, returnNo}` 填写退货物流（WAIT_RETURN → RETURNING） |
 | POST | `/app/review` | `{orderItemId, rating, content, images[], anonymous}`，仅已完成订单的明细，每条只能评一次；全部明细已评则订单 reviewed=1 |
+
+评价、售后的 `images[]` 只接受本站上传接口返回的路径（`/uploads/...`），外链会被拒绝。
 | GET | `/app/review/mine` | 我的评价分页 |
 
 ---
@@ -392,7 +410,7 @@ APPLYING ─拒绝─▶ REJECTED        APPLYING / WAIT_RETURN ─买家撤销�
 |---|---|
 | 新增接口返回值 | `POST` 新增类接口返回新记录 ID；领取优惠券返回会员券 ID |
 | 字典下拉 | `GET /admin/system/dict/data/{dictType}`（只需登录）、`GET /app/public/dict/{dictType}`（公开），返回 `[{label, value}]` |
-| 商城端登出 | `POST /app/member/logout`，作废当前令牌 |
+| 商城端登出 | `POST /app/member/logout {refreshToken?}`，作废当前 access 令牌与提交的 refresh 令牌 |
 | 售后类型 | `REFUND` 仅退款、`RETURN_REFUND` 退货退款；待发货订单的退款必须为该明细剩余可退全额（并回补库存） |
 | 订单日志 | `logs[] = {fromStatus, toStatus, operator, remark, createdAt}`，operator 为 `member:<id>` / `admin:<id>` / `system` |
 | 好评率 | `goodRate` 为 0–100 的整数（4–5 星占比），无评价时为 100 |
@@ -405,4 +423,6 @@ APPLYING ─拒绝─▶ REJECTED        APPLYING / WAIT_RETURN ─买家撤销�
 | 支付 | `pay` 返回 `{paid}`；接入微信/支付宝时新增 `PayChannel` 实现，回调走 `/app/public/pay/notify/{channel}` 并调用 `PayService.onPaid(payNo, channelNo)`（重复通知幂等） |
 | 会员资料 | 额外返回 `hasPassword`；验证码注册的会员首次设置密码时可不传 `oldPassword` |
 | 收藏 / 足迹项 | `{id(商品ID), name, pic, price, originalPrice, sales, onSale, favoritedAt / browsedAt}`；收藏上限 500，足迹保留最近 200 条 |
-| 令牌时效 | access 2 小时、refresh 7 天且每次刷新换新；冻结、停用、调权限在 access 过期或刷新时生效 |
+| 令牌时效 | access 2 小时、refresh 7 天且每次刷新换新（旧 refresh 立即作废，重放返回 40100） |
+| 令牌失效 | 令牌带版本号 `tv`：会员改密 / 重置密码 / 被冻结，管理员改密 / 被重置密码 / 被停用 / 角色调整后，该用户所有已签发令牌**立即**失效（40100）；仅修改角色的菜单权限仍在下次刷新令牌时生效 |
+| 富文本 | 公告内容、商品详情保存时在服务端用 `HtmlSanitizer` 白名单清洗（去掉脚本、事件属性、javascript: 链接、危险 CSS），前端仍可 v-html 渲染 |

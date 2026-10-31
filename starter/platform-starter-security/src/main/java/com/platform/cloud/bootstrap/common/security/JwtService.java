@@ -30,6 +30,8 @@ public class JwtService {
     public static final String CLAIM_ROLES = "roles";
     public static final String TYPE_ACCESS = "access";
     public static final String TYPE_REFRESH = "refresh";
+    /** 令牌版本号声明：用户改密 / 被冻结后版本号自增，旧令牌整体失效，见 {@link TokenVersionChecker} */
+    public static final String CLAIM_TOKEN_VERSION = "tv";
 
     private final JwtProperties props;
     private SecretKey key;

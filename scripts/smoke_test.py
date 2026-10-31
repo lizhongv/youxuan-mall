@@ -105,7 +105,13 @@ def main():
     @step("会员注册（验证码）与资料")
     def _():
         mobile = "139" + "".join(random.choices("0123456789", k=8))
-        code = pub.call("POST", "/app/auth/sms-code", json={"mobile": mobile, "scene": "REGISTER"})["devCode"]
+        # 发短信前必须过图形验证码；demo 模式下 captcha 接口回显答案（devCode），prod 模式无法自动化
+        cap = pub.call("GET", "/app/auth/captcha")
+        assert cap.get("devCode"), "图形验证码未回显：冒烟测试需在 MALL_PROFILE=demo 的环境运行"
+        code = pub.call("POST", "/app/auth/sms-code", json={
+            "mobile": mobile, "scene": "REGISTER",
+            "captchaId": cap["captchaId"], "captchaCode": cap["devCode"]})["devCode"]
+        assert code, "短信验证码未回显：demo 模式需设置 MALL_SMS_DEV_MODE=true"
         tok = buyer.call("POST", "/app/auth/register", json={"mobile": mobile, "code": code, "password": "Test1234"})
         buyer.token = tok["accessToken"]
         prof = buyer.call("GET", "/app/member/profile")

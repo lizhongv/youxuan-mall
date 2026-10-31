@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.cloud.bootstrap.common.exception.BusinessException;
 import com.platform.cloud.bootstrap.common.web.PageVO;
+import com.platform.cloud.mall.common.util.HtmlSanitizer;
 import com.platform.cloud.mall.goods.support.GoodsCacheNames;
 import com.platform.cloud.mall.marketing.dto.NoticeQuery;
 import com.platform.cloud.mall.marketing.dto.NoticeRequest;
@@ -103,7 +104,8 @@ public class NoticeServiceImpl implements NoticeService {
 
     private static void apply(Notice n, NoticeRequest req) {
         n.setTitle(req.getTitle().trim());
-        n.setContent(req.getContent() == null ? "" : req.getContent());
+        // 公告在商城端以 v-html 渲染，入库前做服务端 XSS 清洗
+        n.setContent(req.getContent() == null ? "" : HtmlSanitizer.sanitize(req.getContent()));
         n.setSort(req.getSort() == null ? 0 : req.getSort());
         n.setStatus(req.getStatus() == null ? 1 : req.getStatus());
     }

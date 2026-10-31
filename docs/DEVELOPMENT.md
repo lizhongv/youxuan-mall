@@ -60,7 +60,7 @@ platform-cloud/
 - 所有 `Long` 型 ID 序列化为字符串，避免前端 JS 精度丢失。
 - 写接口必须有 `@Valid` 校验；下单、支付等关键接口带幂等令牌。
 - 管理端权限：`@PreAuthorize("hasAuthority('goods:edit')")`，权限码在菜单表维护。
-- 每个接口加 `@Operation(summary = ...)`，文档在 `/doc.html`。
+- 每个接口加 `@Operation(summary = ...)`，文档在 `/doc.html`（仅 demo 模式提供）。
 
 ## 5. 界面
 
@@ -78,9 +78,13 @@ platform-cloud/
 
 ## 7. 安全
 
-- 密码使用 BCrypt；JWT 密钥 ≥ 32 字节且仅从环境变量注入；登录失败多次锁定。
+- 运行模式默认 `prod`（`MALL_PROFILE`），本机开发设置 `MALL_PROFILE=demo`；新增演示开关必须加入 `MallProfileEnvironmentPostProcessor` 的 prod 强制值。
+- 密码使用 BCrypt；JWT 密钥 ≥ 32 字节且仅从环境变量注入；登录失败多次锁定（`LoginAttemptGuard`，Redis 原子计数）。
+- 会改变「谁能以什么身份访问」的操作（改密、冻结、停用、调整角色）必须调用 `TokenVersionStore.revokeAll` 作废旧令牌。
+- 取客户端 IP 只用 `common.util.RequestUtils.clientIp()`，不要自己读 X-Forwarded-For。
+- 前端会 v-html 渲染的富文本，保存前调用 `HtmlSanitizer.sanitize`；会员提交的图片地址用 `UploadUrlValidator` 校验。
 - 管理端与商城端令牌带 `utype` 声明，互不通用。
-- 上传文件校验扩展名白名单与大小，文件名随机化，存储路径不可由用户控制。
+- 上传文件校验扩展名白名单、文件头与大小，文件名随机化，存储路径不可由用户控制。
 - 手机号等敏感字段在后台列表中脱敏展示。
 - 用户只能访问自己的订单、地址、优惠券：查询条件必须带当前用户 ID。
 

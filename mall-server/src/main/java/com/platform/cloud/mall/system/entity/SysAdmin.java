@@ -24,4 +24,9 @@ public class SysAdmin extends BaseEntity {
     private LocalDateTime lastLoginAt;
     private String lastLoginIp;
     private String remark;
+    /** 1 = 下次登录后必须先改密码（初始账号、被他人新建或重置密码的账号） */
+    private Integer mustChangePassword;
+    private LocalDateTime pwdChangedAt;
+    /** 令牌版本号：改密 / 停用 / 调整角色时自增，旧令牌全部失效；只能用 SQL 自增，不能整行覆盖 */
+    private Integer tokenVersion;
 }

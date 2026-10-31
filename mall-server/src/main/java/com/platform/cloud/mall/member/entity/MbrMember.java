@@ -31,4 +31,7 @@ public class MbrMember extends BaseEntity {
     private Integer status;
     private String registerIp;
     private LocalDateTime lastLoginAt;
+    private LocalDateTime pwdChangedAt;
+    /** 令牌版本号：改密 / 重置密码 / 冻结时自增，旧令牌全部失效；只能用 SQL 自增，不能整行覆盖 */
+    private Integer tokenVersion;
 }

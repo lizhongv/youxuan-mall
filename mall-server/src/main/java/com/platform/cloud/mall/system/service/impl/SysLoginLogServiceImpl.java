@@ -10,7 +10,7 @@ import com.platform.cloud.mall.system.entity.SysLoginLog;
 import com.platform.cloud.mall.system.mapper.SysLoginLogMapper;
 import com.platform.cloud.mall.system.service.SysLoginLogService;
 import com.platform.cloud.mall.system.support.AsyncLogWriter;
-import com.platform.cloud.mall.system.support.RequestUtils;
+import com.platform.cloud.mall.common.util.RequestUtils;
 import com.platform.cloud.mall.system.vo.LoginLogVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

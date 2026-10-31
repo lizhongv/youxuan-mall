@@ -8,6 +8,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
@@ -36,9 +37,20 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     @ResponseStatus(HttpStatus.OK)
-    public R<Void> handleBusiness(BusinessException e, HttpServletRequest req) {
+    public R<Object> handleBusiness(BusinessException e, HttpServletRequest req) {
         log.warn("BusinessException at {} {}: code={}, msg={}", req.getMethod(), req.getRequestURI(), e.getCode(), e.getMessage());
-        return R.fail(e.getCode(), e.getMessage());
+        return R.fail(e.getCode(), e.getMessage(), e.getData());
+    }
+
+    /**
+     * Redis / 数据库连不上：返回 503 与可读提示，而不是把连接异常细节（主机、端口）暴露给前端。
+     * 登录、刷新令牌等安全相关逻辑在 Redis 不可用时选择严格失败，就会走到这里。
+     */
+    @ExceptionHandler(DataAccessResourceFailureException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public R<Void> handleResourceFailure(DataAccessResourceFailureException e, HttpServletRequest req) {
+        log.error("Resource unavailable at {} {}: {}", req.getMethod(), req.getRequestURI(), e.getMessage());
+        return R.fail(ResultCode.SERVICE_UNAVAILABLE, "服务暂不可用，请稍后再试");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -120,7 +132,8 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public R<Void> handleAny(Throwable e, HttpServletRequest req) {
         log.error("Unhandled exception at {} {}", req.getMethod(), req.getRequestURI(), e);
-        return R.fail(ResultCode.INTERNAL_ERROR, e.getClass().getSimpleName() + ": " + e.getMessage());
+        // 不把异常类名与消息返回给前端：其中可能含 SQL、表名、内网地址；排查用响应里的 traceId 对日志
+        return R.fail(ResultCode.INTERNAL_ERROR);
     }
 
     private String formatFieldError(FieldError fe) {
