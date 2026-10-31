@@ -40,14 +40,14 @@ public interface OrderService {
 
     void adminCancel(Long adminId, Long orderId, String reason);
 
-    /** 定时任务：找出已超时未支付的订单 ID */
-    List<Long> findExpiredUnpaid(int limit);
+    /** 定时任务：找出已超时未支付的订单 ID（按 id 升序，afterId 为游标，首页传 null） */
+    List<Long> findExpiredUnpaid(Long afterId, int limit);
 
     /** 定时任务：关闭单个超时订单（独立事务，单个失败不影响其他） */
     void closeExpired(Long orderId);
 
-    /** 定时任务：找出已到自动收货时间的订单 ID */
-    List<Long> findAutoReceivable(int limit);
+    /** 定时任务：找出已到自动收货时间、且没有进行中售后的订单 ID（按 id 升序游标分页） */
+    List<Long> findAutoReceivable(Long afterId, int limit);
 
     /** 定时任务：自动确认收货单个订单 */
     void autoReceive(Long orderId);

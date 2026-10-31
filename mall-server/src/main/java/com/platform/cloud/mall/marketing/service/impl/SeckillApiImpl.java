@@ -39,13 +39,17 @@ public class SeckillApiImpl implements SeckillApi {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void acquire(Long seckillId, Long memberId, int quantity) {
+    public void acquire(Long seckillId, Long memberId, int quantity, int purchased) {
         if (quantity <= 0) {
             throw new BusinessException("购买数量必须大于 0");
         }
         Seckill s = seckillMapper.selectById(seckillId);
         checkAvailable(s, quantity, LocalDateTime.now());
         int limit = s.getLimitPerMember() == null ? 1 : s.getLimitPerMember();
+        // 以订单为准的个人限购兜底：Redis 个人已购 Hash 丢失后 Lua 会认为「从未买过」，这里先挡住
+        if (Math.max(purchased, 0) + quantity > limit) {
+            throw new BusinessException("每人限购 " + limit + " 件，您已达到限购数量");
+        }
 
         long r = stockCache.tryAcquire(seckillId, memberId, quantity, limit);
         if (r == SeckillStockCache.NOT_WARMED) {
@@ -78,7 +82,9 @@ public class SeckillApiImpl implements SeckillApi {
         if (quantity <= 0) {
             return;
         }
-        // sold >= quantity 条件保证不会减成负数；影响 0 行说明已归还过，Redis 也不再加回，保持幂等
+        // 在调用方事务内扣 sold：取消事务回滚时 sold 一起回滚；
+        // sold >= quantity 条件保证不会减成负数；影响 0 行说明已归还过，Redis 也不再加回，保持幂等。
+        // Redis 名额登记在调用方事务的 afterCommit 上，事务提交后恰好加回一次
         if (seckillMapper.decreaseSold(seckillId, quantity) > 0) {
             TxCallbacks.afterCommit(() -> stockCache.release(seckillId, memberId, quantity));
         }

@@ -14,9 +14,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -36,7 +40,7 @@ class StatsServiceImplTest {
         LocalDate today = LocalDate.of(2026, 10, 31);
         when(tradeStats.dailyPaid(any(), any())).thenReturn(List.of(
                 new DailySales("2026-10-29", new BigDecimal("100.00"), 2)));
-        when(memberApi.countRegistered(any(), any())).thenReturn(1L);
+        when(memberApi.countRegisteredDaily(any(), any())).thenReturn(Map.of("2026-10-30", 3L));
 
         List<TrendPointVO> trend = service.trend(7, today);
 
@@ -47,6 +51,11 @@ class StatsServiceImplTest {
         assertThat(trend.get(4).orders()).isEqualTo(2);
         assertThat(trend.get(5).sales()).isEqualByComparingTo("0");
         assertThat(trend.get(5).orders()).isZero();
-        assertThat(trend).allSatisfy(p -> assertThat(p.members()).isEqualTo(1L));
+        assertThat(trend.get(5).members()).isEqualTo(3L);
+        assertThat(trend.get(4).members()).isZero();
+        // 销售与新会员各一次分组查询，不按天逐个查
+        verify(tradeStats, times(1)).dailyPaid(any(), any());
+        verify(memberApi, times(1)).countRegisteredDaily(any(), any());
+        verify(memberApi, never()).countRegistered(any(), any());
     }
 }

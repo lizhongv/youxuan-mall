@@ -20,6 +20,9 @@ public interface MemberAccountService {
     /** 增加成长值，达到更高等级门槛时自动升级（只升不降） */
     void addGrowth(Long memberId, int delta, String bizType, String bizNo, String remark);
 
+    /** 回收订单奖励：积分、成长值各自最多扣到 0，写流水，不降级（见 MemberApi#reclaimReward） */
+    void reclaimReward(Long memberId, int points, int growth, String bizType, String bizNo, String remark);
+
     /** 流水分页；memberId 为空时查全部（仅后台） */
     PageVO<AccountLogVO> pageLogs(AccountLogQuery query);
 }

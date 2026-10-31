@@ -14,6 +14,9 @@ import com.platform.cloud.mall.trade.MpTestSupport;
 import com.platform.cloud.mall.trade.cart.entity.Cart;
 import com.platform.cloud.mall.trade.cart.mapper.CartMapper;
 import com.platform.cloud.mall.trade.common.TradeSettings;
+import com.platform.cloud.mall.trade.freight.service.FreightQuoteService;
+import com.platform.cloud.mall.trade.freight.support.FreightCalculator;
+import com.platform.cloud.mall.trade.order.service.PriceCalculator;
 import com.platform.cloud.mall.trade.order.dto.OrderSubmitRequest;
 import com.platform.cloud.mall.trade.order.entity.Order;
 import com.platform.cloud.mall.trade.order.entity.OrderItem;
@@ -35,7 +38,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
@@ -84,6 +86,8 @@ class OrderCheckoutServiceImplTest {
     OrderItemMapper orderItemMapper;
     @Mock
     OrderStateMachine stateMachine;
+    @Mock
+    FreightQuoteService freightQuote;
     @InjectMocks
     OrderCheckoutServiceImpl service;
 
@@ -99,6 +103,14 @@ class OrderCheckoutServiceImplTest {
                 new AddressSnapshot("张三", "13800000000", "广东省", "深圳市", "南山区", "科技园 1 号"));
         when(settings.freightRule()).thenReturn(new FreightRule(new BigDecimal("10"), new BigDecimal("99")));
         when(settings.payTimeoutMinutes()).thenReturn(30);
+        // 无运费模板时的旧规则：按折后合计判断满 99 包邮，否则 10 元（模板计算本身见 FreightCalculatorTest）
+        FreightRule rule = new FreightRule(new BigDecimal("10"), new BigDecimal("99"));
+        when(freightQuote.quote(any(), any())).thenAnswer(inv -> {
+            List<FreightCalculator.Item> items = inv.getArgument(1);
+            BigDecimal total = items.stream().map(FreightCalculator.Item::amount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            return PriceCalculator.freight(total, rule);
+        });
         when(goodsApi.getSkus(any())).thenReturn(Map.of(
                 SKU_A, sku(SKU_A, "100.00", 10, true),
                 SKU_B, sku(SKU_B, "50.00", 10, true)));
@@ -223,7 +235,7 @@ class OrderCheckoutServiceImplTest {
         req.setSeckillId(77L);
 
         assertThatThrownBy(() -> service.submit(MEMBER, req)).hasMessageContaining("只能购买一个商品");
-        verify(seckillApi, never()).acquire(anyLong(), anyLong(), anyInt());
+        verify(seckillApi, never()).acquire(anyLong(), anyLong(), anyInt(), anyInt());
     }
 
     @Test
@@ -235,7 +247,7 @@ class OrderCheckoutServiceImplTest {
         req.setMemberCouponId(5L);
 
         assertThatThrownBy(() -> service.submit(MEMBER, req)).hasMessageContaining("不可使用优惠券");
-        verify(seckillApi, never()).acquire(anyLong(), anyLong(), anyInt());
+        verify(seckillApi, never()).acquire(anyLong(), anyLong(), anyInt(), anyInt());
     }
 
     @Test
@@ -280,6 +292,7 @@ class OrderCheckoutServiceImplTest {
                 LocalDateTime.now().plusHours(1), 2));
         OrderSubmitRequest req = buyNow(SKU_A, 2);
         req.setSeckillId(77L);
+        when(orderMapper.sumSeckillPurchased(77L, MEMBER)).thenReturn(0);
 
         service.submit(MEMBER, req);
 
@@ -289,15 +302,30 @@ class OrderCheckoutServiceImplTest {
         assertThat(order.getValue().getGoodsAmount()).isEqualByComparingTo("19.80");
         assertThat(order.getValue().getDiscountAmount()).isEqualByComparingTo("0.00");
         assertThat(order.getValue().getPayAmount()).isEqualByComparingTo("29.80");
-        verify(seckillApi).acquire(77L, MEMBER, 2);
+        assertThat(order.getValue().getSeckillId()).isEqualTo(77L);
+        verify(seckillApi).acquire(77L, MEMBER, 2, 0);
         verify(goodsApi).deductStock(SKU_A, 2);
         ArgumentCaptor<String> remark = ArgumentCaptor.forClass(String.class);
         verify(stateMachine).log(anyLong(), isNull(), eq("PENDING_PAY"), eq("member:" + MEMBER), remark.capture());
-        assertThat(remark.getValue()).contains("seckillId=77");
+        assertThat(remark.getValue()).contains("77");
     }
 
     @Test
-    void 秒杀下单事务回滚后归还名额() {
+    void 秒杀个人已购以订单为准传给营销领域() {
+        when(seckillApi.get(77L)).thenReturn(seckillInfo(LocalDateTime.now().minusHours(1),
+                LocalDateTime.now().plusHours(1), 2));
+        when(orderMapper.sumSeckillPurchased(77L, MEMBER)).thenReturn(1);
+        doThrow(new BusinessException("每人限购 2 件，您已达到限购数量")).when(seckillApi).acquire(77L, MEMBER, 2, 1);
+        OrderSubmitRequest req = buyNow(SKU_A, 2);
+        req.setSeckillId(77L);
+
+        assertThatThrownBy(() -> service.submit(MEMBER, req)).hasMessageContaining("限购");
+        verify(goodsApi, never()).deductStock(anyLong(), anyInt());
+        verify(orderMapper, never()).insert(any(Order.class));
+    }
+
+    @Test
+    void 秒杀下单回滚时checkout不再登记归还_由acquire内部补偿() {
         when(seckillApi.get(77L)).thenReturn(seckillInfo(LocalDateTime.now().minusHours(1),
                 LocalDateTime.now().plusHours(1), 2));
         doThrow(new BusinessException("库存不足")).when(goodsApi).deductStock(SKU_A, 1);
@@ -307,22 +335,58 @@ class OrderCheckoutServiceImplTest {
         TransactionSynchronizationManager.initSynchronization();
         try {
             assertThatThrownBy(() -> service.submit(MEMBER, req)).hasMessage("库存不足");
-            verify(seckillApi, never()).release(anyLong(), anyLong(), anyInt());
-            // 模拟事务管理器回滚后的回调
-            for (TransactionSynchronization s : TransactionSynchronizationManager.getSynchronizations()) {
-                s.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
-            }
+            // acquire 是 mock，未登记任何回调；checkout 自己也不能登记（否则回滚时会重复归还）
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
-        verify(seckillApi).release(77L, MEMBER, 1);
+        verify(seckillApi).acquire(77L, MEMBER, 1, 0);
+        verify(seckillApi, never()).release(anyLong(), anyLong(), anyInt());
+    }
+
+    @Test
+    void 多SKU按skuId升序扣库存_避免死锁() {
+        OrderSubmitRequest req = new OrderSubmitRequest();
+        req.setSource(OrderSubmitRequest.SOURCE_CART);
+        req.setCartIds(List.of(1L, 2L));
+        req.setAddressId(ADDRESS);
+        // 购物车顺序是 B 在前
+        when(cartMapper.selectList(any())).thenReturn(List.of(cart(1L, SKU_B, 1), cart(2L, SKU_A, 1)));
+
+        service.submit(MEMBER, req);
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(goodsApi);
+        inOrder.verify(goodsApi).deductStock(SKU_A, 1);
+        inOrder.verify(goodsApi).deductStock(SKU_B, 1);
+    }
+
+    @Test
+    void 运费按收货省份与商品运费模板报价() {
+        when(goodsApi.getShipping(any())).thenReturn(Map.of(SKU_A,
+                new GoodsApi.ShippingInfo(SKU_A, 300L, new BigDecimal("1.500"))));
+        org.mockito.Mockito.doReturn(new BigDecimal("12.00")).when(freightQuote).quote(eq("广东省"), any());
+
+        service.submit(MEMBER, buyNow(SKU_A, 1));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<FreightCalculator.Item>> items = ArgumentCaptor.forClass(List.class);
+        verify(freightQuote).quote(eq("广东省"), items.capture());
+        FreightCalculator.Item it = items.getValue().get(0);
+        assertThat(it.templateId()).isEqualTo(300L);
+        assertThat(it.unitWeight()).isEqualByComparingTo("1.5");
+        // 折后金额 100 × 0.9
+        assertThat(it.amount()).isEqualByComparingTo("90.00");
+        ArgumentCaptor<Order> order = ArgumentCaptor.forClass(Order.class);
+        verify(orderMapper).insert(order.capture());
+        assertThat(order.getValue().getFreightAmount()).isEqualByComparingTo("12.00");
+        assertThat(order.getValue().getPayAmount()).isEqualByComparingTo("102.00");
     }
 
     @Test
     void 抢名额失败无需归还() {
         when(seckillApi.get(77L)).thenReturn(seckillInfo(LocalDateTime.now().minusHours(1),
                 LocalDateTime.now().plusHours(1), 2));
-        doThrow(new BusinessException("已抢光")).when(seckillApi).acquire(77L, MEMBER, 1);
+        doThrow(new BusinessException("已抢光")).when(seckillApi).acquire(77L, MEMBER, 1, 0);
         OrderSubmitRequest req = buyNow(SKU_A, 1);
         req.setSeckillId(77L);
 
@@ -388,7 +452,7 @@ class OrderCheckoutServiceImplTest {
         verify(couponApi).use(MEMBER, 5L, o.getId());
         verify(cartMapper).delete(any());
         verify(stateMachine).log(eq(o.getId()), isNull(), eq("PENDING_PAY"), eq("member:" + MEMBER), anyString());
-        verify(seckillApi, never()).acquire(anyLong(), anyLong(), anyInt());
+        verify(seckillApi, never()).acquire(anyLong(), anyLong(), anyInt(), anyInt());
     }
 
     @Test
@@ -469,6 +533,6 @@ class OrderCheckoutServiceImplTest {
         assertThat(vo.getCoupons()).isEmpty();
         assertThat(vo.getItems().get(0).getPrice()).isEqualByComparingTo("9.90");
         verify(couponApi, never()).listForCheckout(anyLong(), any());
-        verify(seckillApi, never()).acquire(anyLong(), anyLong(), anyInt());
+        verify(seckillApi, never()).acquire(anyLong(), anyLong(), anyInt(), anyInt());
     }
 }

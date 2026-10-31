@@ -33,6 +33,16 @@ public interface MemberApi {
     /** 增加成长值并按等级表自动升级 */
     void addGrowth(Long memberId, int delta, String bizType, String bizNo, String remark);
 
+    /**
+     * 回收已发放的订单奖励（确认收货后又退款）：积分、成长值各自最多扣到 0，不因余额不足而失败——
+     * 积分可能已被会员花掉，退款不能因此卡住。实际扣减数各写一条流水（扣减为 0 的不写）。
+     * 会员等级不随成长值下降而降级，避免退款导致等级频繁跳动（等级只升不降，与发放规则一致）。
+     *
+     * @param points 计划回收的积分（≥ 0）
+     * @param growth 计划回收的成长值（≥ 0）
+     */
+    void reclaimReward(Long memberId, int points, int growth, String bizType, String bizNo, String remark);
+
     /** 是否已收藏该商品 */
     boolean isFavorited(Long memberId, Long goodsId);
 
@@ -41,6 +51,9 @@ public interface MemberApi {
 
     /** 统计用：时间段内新注册会员数 */
     long countRegistered(LocalDateTime from, LocalDateTime to);
+
+    /** 统计用：[from, to) 内按注册日期（yyyy-MM-dd）分组的新会员数，一次查询；没有注册的日期不返回 */
+    Map<String, Long> countRegisteredDaily(LocalDateTime from, LocalDateTime to);
 
     record MemberBrief(Long id, String mobile, String nickname, String avatar, Long levelId, String levelName,
                        BigDecimal discount, BigDecimal balance, Integer points, Integer status) {

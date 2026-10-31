@@ -1,6 +1,7 @@
 package com.platform.cloud.mall.marketing.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.platform.cloud.bootstrap.common.exception.BusinessException;
 import com.platform.cloud.bootstrap.common.web.PageVO;
@@ -91,10 +92,41 @@ public class CouponServiceImpl implements CouponService {
         if (issued > 0 && ruleChanged(c, updated)) {
             throw new BusinessException("已有会员领取，只能修改名称、发行量、限领、状态和说明");
         }
-        apply(c, req);
-        if (couponMapper.updateById(c) == 0) {
+        // 只写业务字段：issued / used 由领取、核销的条件更新累加，整行 updateById 会把读取时的旧值写回、吞掉并发领取。
+        // version 条件挡住两个管理员并发编辑；total 不小于当前 issued 在数据库侧再兜一次（领取可能发生在校验之后）
+        int rows = couponMapper.update(null, businessFields(updated)
+                .eq(Coupon::getId, id)
+                .eq(Coupon::getVersion, c.getVersion())
+                .apply(req.getTotal() != 0, "issued <= {0}", req.getTotal())
+                .set(Coupon::getVersion, nextVersion(c)));
+        if (rows == 0) {
             throw new BusinessException("数据已被修改，请刷新后重试");
         }
+    }
+
+    /** 管理端可编辑的业务字段；刻意不含 issued / used 两个计数列 */
+    static LambdaUpdateWrapper<Coupon> businessFields(Coupon v) {
+        return new LambdaUpdateWrapper<Coupon>()
+                .set(Coupon::getName, v.getName())
+                .set(Coupon::getType, v.getType())
+                .set(Coupon::getThreshold, v.getThreshold())
+                .set(Coupon::getAmount, v.getAmount())
+                .set(Coupon::getDiscount, v.getDiscount())
+                .set(Coupon::getMaxAmount, v.getMaxAmount())
+                .set(Coupon::getScope, v.getScope())
+                .set(Coupon::getScopeIds, v.getScopeIds(), "typeHandler=com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler")
+                .set(Coupon::getTotal, v.getTotal())
+                .set(Coupon::getPerLimit, v.getPerLimit())
+                .set(Coupon::getValidType, v.getValidType())
+                .set(Coupon::getStartAt, v.getStartAt())
+                .set(Coupon::getEndAt, v.getEndAt())
+                .set(Coupon::getValidDays, v.getValidDays())
+                .set(Coupon::getStatus, v.getStatus())
+                .set(Coupon::getDescription, v.getDescription());
+    }
+
+    private static int nextVersion(Coupon c) {
+        return (c.getVersion() == null ? 0 : c.getVersion()) + 1;
     }
 
     @Override
@@ -113,9 +145,11 @@ public class CouponServiceImpl implements CouponService {
         if (status == null || (status != 0 && status != 1)) {
             throw new BusinessException("状态只能是 0 或 1");
         }
-        Coupon c = mustGet(id);
-        c.setStatus(status);
-        if (couponMapper.updateById(c) == 0) {
+        mustGet(id);
+        // 只改状态列，不整行回写计数（同 update）
+        if (couponMapper.update(null, new LambdaUpdateWrapper<Coupon>()
+                .eq(Coupon::getId, id)
+                .set(Coupon::getStatus, status)) == 0) {
             throw new BusinessException("数据已被修改，请刷新后重试");
         }
     }

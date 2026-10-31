@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.platform.cloud.bootstrap.common.exception.BusinessException;
 import com.platform.cloud.mall.goods.api.GoodsApi;
 import com.platform.cloud.mall.goods.api.GoodsApi.GoodsLine;
+import com.platform.cloud.mall.goods.api.GoodsApi.ShippingInfo;
 import com.platform.cloud.mall.goods.api.GoodsApi.SkuSnapshot;
 import com.platform.cloud.mall.marketing.api.CouponApi;
 import com.platform.cloud.mall.marketing.api.CouponApi.CouponOption;
@@ -17,10 +18,10 @@ import com.platform.cloud.mall.trade.cart.entity.Cart;
 import com.platform.cloud.mall.trade.cart.mapper.CartMapper;
 import com.platform.cloud.mall.trade.common.NoGenerator;
 import com.platform.cloud.mall.trade.common.Operators;
-import com.platform.cloud.mall.trade.common.SeckillMarker;
 import com.platform.cloud.mall.trade.common.TradeDefaults;
 import com.platform.cloud.mall.trade.common.TradeSettings;
-import com.platform.cloud.mall.trade.common.TxHooks;
+import com.platform.cloud.mall.trade.freight.service.FreightQuoteService;
+import com.platform.cloud.mall.trade.freight.support.FreightCalculator;
 import com.platform.cloud.mall.trade.order.dto.OrderSubmitRequest;
 import com.platform.cloud.mall.trade.order.entity.Order;
 import com.platform.cloud.mall.trade.order.entity.OrderItem;
@@ -47,6 +48,7 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -76,6 +78,7 @@ public class OrderCheckoutServiceImpl implements OrderCheckoutService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final OrderStateMachine stateMachine;
+    private final FreightQuoteService freightQuote;
 
     @Override
     public OrderConfirmVO confirm(Long memberId, OrderSubmitRequest req) {
@@ -98,7 +101,9 @@ public class OrderCheckoutServiceImpl implements OrderCheckoutService {
                 couponAmount = couponApi.calculate(memberId, couponId, goodsLines);
             }
         }
-        Result r = PriceCalculator.calculate(c.lines(), member.discount(), couponAmount, settings.freightRule());
+        AddressSnapshot address = req.getAddressId() == null ? null : requireAddress(memberId, req.getAddressId());
+        BigDecimal freight = freightOf(c, goodsLines, address == null ? null : address.province());
+        Result r = PriceCalculator.calculateWithFreight(c.lines(), member.discount(), couponAmount, freight);
 
         OrderConfirmVO vo = new OrderConfirmVO();
         List<OrderConfirmVO.Item> items = new ArrayList<>();
@@ -116,8 +121,8 @@ public class OrderCheckoutServiceImpl implements OrderCheckoutService {
             items.add(it);
         }
         vo.setItems(items);
-        if (req.getAddressId() != null) {
-            vo.setAddress(toAddressVO(req.getAddressId(), requireAddress(memberId, req.getAddressId())));
+        if (address != null) {
+            vo.setAddress(toAddressVO(req.getAddressId(), address));
         }
         vo.setGoodsAmount(r.goodsAmount());
         vo.setDiscountAmount(r.discountAmount());
@@ -149,18 +154,23 @@ public class OrderCheckoutServiceImpl implements OrderCheckoutService {
         List<GoodsLine> goodsLines = PriceCalculator.toGoodsLines(c.lines(), member.discount());
         BigDecimal couponAmount = couponId == null ? BigDecimal.ZERO
                 : couponApi.calculate(memberId, couponId, goodsLines);
-        Result r = PriceCalculator.calculate(c.lines(), member.discount(), couponAmount, settings.freightRule());
+        BigDecimal freight = freightOf(c, goodsLines, address.province());
+        Result r = PriceCalculator.calculateWithFreight(c.lines(), member.discount(), couponAmount, freight);
 
-        // 秒杀：先在 Redis 原子抢名额，挡掉绝大多数无效请求再碰数据库；
-        // 抢到后若本事务回滚（扣库存失败等），回滚后归还名额。acquire 本身失败则无需归还。
+        // 秒杀：先在 Redis 原子抢名额，挡掉绝大多数无效请求再碰数据库。
+        // 回滚补偿由 acquire 内部登记（sold 随事务回滚、Redis 名额回滚后补回），这里不能再登记 release，
+        // 否则回滚时会归还两次，且 release 的 decreaseSold 会在已回滚的连接上执行。
+        // 个人已购数以订单为准传入，防止 Redis 个人计数丢失后限购失效。
         if (c.seckill() != null) {
             SeckillInfo sk = c.seckill();
             int qty = c.lines().get(0).quantity();
-            seckillApi.acquire(sk.id(), memberId, qty);
-            TxHooks.afterRollback(() -> seckillApi.release(sk.id(), memberId, qty));
+            seckillApi.acquire(sk.id(), memberId, qty, orderMapper.sumSeckillPurchased(sk.id(), memberId));
         }
-        // 条件扣减真实库存（WHERE stock >= ?），任一失败整单回滚
-        for (Line l : c.lines()) {
+        // 条件扣减真实库存（WHERE stock >= ?），任一失败整单回滚。
+        // 按 skuId 升序加行锁：两个订单包含相同的几个 SKU 时加锁顺序一致，避免互相等待形成死锁
+        List<Line> byId = new ArrayList<>(c.lines());
+        byId.sort(Comparator.comparing(Line::skuId));
+        for (Line l : byId) {
             goodsApi.deductStock(l.skuId(), l.quantity());
         }
 
@@ -178,13 +188,29 @@ public class OrderCheckoutServiceImpl implements OrderCheckoutService {
                     .eq(Cart::getMemberId, memberId)
                     .in(Cart::getId, c.cartIds()));
         }
-        String remark = c.seckill() == null ? "提交订单" : "提交秒杀订单 " + SeckillMarker.mark(c.seckill().id());
+        String remark = c.seckill() == null ? "提交订单" : "提交秒杀订单（活动 " + c.seckill().id() + "）";
         stateMachine.log(order.getId(), null, OrderStatus.PENDING_PAY.name(), Operators.member(memberId), remark);
         return new OrderSubmitVO(order.getId(), order.getOrderNo(), order.getPayAmount(), order.getPayExpireAt());
     }
 
-    /** 结算上下文：计价行（与 SKU 快照一一对应）、来源购物车项、秒杀活动 */
-    record Checkout(List<Line> lines, Map<Long, SkuSnapshot> skus, List<Long> cartIds, SeckillInfo seckill) {
+    /** 结算上下文：计价行（与 SKU 快照一一对应）、来源购物车项、秒杀活动、运费计算用的模板与重量 */
+    record Checkout(List<Line> lines, Map<Long, SkuSnapshot> skus, List<Long> cartIds, SeckillInfo seckill,
+                    Map<Long, ShippingInfo> shipping) {
+    }
+
+    /**
+     * 运费：按收货省份走运费模板（同模板合并计件 / 计重，多模板相加，全局满额包邮优先），
+     * 金额按会员折扣后的行金额判断包邮，与原「按折后金额包邮」口径一致。goodsLines 与 c.lines() 顺序一致。
+     */
+    private BigDecimal freightOf(Checkout c, List<GoodsLine> goodsLines, String province) {
+        List<FreightCalculator.Item> items = new ArrayList<>(c.lines().size());
+        for (int i = 0; i < c.lines().size(); i++) {
+            Line l = c.lines().get(i);
+            ShippingInfo s = c.shipping().get(l.skuId());
+            items.add(new FreightCalculator.Item(s == null ? null : s.freightTemplateId(), l.quantity(),
+                    s == null ? null : s.weight(), goodsLines.get(i).amount()));
+        }
+        return freightQuote.quote(province, items);
     }
 
     /** 解析下单商品并做通用校验：数量、在售、库存（库存最终以扣减时的条件更新为准） */
@@ -249,7 +275,8 @@ public class OrderCheckoutServiceImpl implements OrderCheckoutService {
             BigDecimal price = seckill != null ? seckill.seckillPrice() : s.price();
             lines.add(new Line(s.goodsId(), s.skuId(), s.categoryId(), price, e.getValue(), seckill != null));
         }
-        return new Checkout(lines, skus, cartIds, seckill);
+        Map<Long, ShippingInfo> shipping = goodsApi.getShipping(qtyBySku.keySet());
+        return new Checkout(lines, skus, cartIds, seckill, shipping == null ? Map.of() : shipping);
     }
 
     /** 秒杀前置校验；名额（活动库存、个人限购）的最终判断在 SeckillApi.acquire 的 Lua 脚本里 */
@@ -317,6 +344,7 @@ public class OrderCheckoutServiceImpl implements OrderCheckoutService {
         o.setId(IdWorker.getId());
         o.setMemberId(memberId);
         o.setOrderType(c.seckill() == null ? OrderType.NORMAL.name() : OrderType.SECKILL.name());
+        o.setSeckillId(c.seckill() == null ? null : c.seckill().id());
         o.setStatus(OrderStatus.PENDING_PAY.name());
         o.setGoodsAmount(r.goodsAmount());
         o.setFreightAmount(r.freightAmount());
