@@ -1,0 +1,3 @@
+# 运行模式（demo / prod）与启动安全检查，见 MallProfileEnvironmentPostProcessor
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.platform.cloud.mall.common.config.MallProfileEnvironmentPostProcessor

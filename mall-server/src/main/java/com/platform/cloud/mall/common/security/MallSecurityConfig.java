@@ -9,11 +9,13 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 
 /**
  * 安全配置：无状态 JWT。
@@ -26,7 +28,9 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @RequiredArgsConstructor
 public class MallSecurityConfig {
 
-    /** 无需登录即可访问的路径 */
+    /**
+     * 无需登录即可访问的路径。接口文档路径在 prod 模式下由 springdoc / knife4j 自身关闭，这里放行不影响。
+     */
     private static final String[] PUBLIC_PATHS = {
             "/admin/auth/login", "/admin/auth/captcha", "/admin/auth/refresh",
             "/app/auth/**", "/app/public/**",
@@ -45,6 +49,11 @@ public class MallSecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // 接口响应保留 Spring Security 默认安全头（nosniff、禁止缓存等）。后台页面由 Nginx 托管、
+                // 不经过这里，不受影响；X-Frame-Options 放宽为 SAMEORIGIN，只为 demo 模式的 /doc.html 能同源嵌套。
+                .headers(h -> h
+                        .frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin)
+                        .referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)))
                 .exceptionHandling(e -> e.authenticationEntryPoint(authEntryPoint).accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(a -> a
                         .requestMatchers(PUBLIC_PATHS).permitAll()

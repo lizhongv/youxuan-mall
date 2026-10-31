@@ -1,5 +1,10 @@
 package com.platform.cloud.mall.member.service.impl;
 
+import com.platform.cloud.mall.common.security.TokenVersionStore;
+import com.platform.cloud.mall.common.security.UserType;
+import com.platform.cloud.mall.member.service.MemberAuthService;
+import com.platform.cloud.mall.member.vo.MemberTokenVO;
+import java.time.LocalDateTime;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.platform.cloud.bootstrap.common.exception.BusinessException;
 import com.platform.cloud.bootstrap.common.web.ResultCode;
@@ -43,6 +48,8 @@ public class MemberProfileServiceImpl implements MemberProfileService {
     private final TradeApi tradeApi;
     private final CouponApi couponApi;
     private final PasswordEncoder passwordEncoder;
+    private final TokenVersionStore versionStore;
+    private final MemberAuthService authService;
 
     @Override
     public MemberProfileVO profile(Long memberId) {
@@ -87,7 +94,7 @@ public class MemberProfileServiceImpl implements MemberProfileService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void changePassword(Long memberId, MemberPasswordRequest req) {
+    public MemberTokenVO changePassword(Long memberId, MemberPasswordRequest req) {
         MbrMember m = require(memberId);
         if (StringUtils.hasText(m.getPassword())) {
             if (!StringUtils.hasText(req.getOldPassword())
@@ -100,7 +107,11 @@ public class MemberProfileServiceImpl implements MemberProfileService {
         }
         memberMapper.update(null, new LambdaUpdateWrapper<MbrMember>()
                 .set(MbrMember::getPassword, passwordEncoder.encode(req.getNewPassword()))
+                .set(MbrMember::getPwdChangedAt, LocalDateTime.now())
                 .eq(MbrMember::getId, memberId));
+        // 其他设备上的登录（可能是盗号者）全部下线，当前会话换发新令牌
+        versionStore.revokeAll(UserType.MEMBER, memberId);
+        return authService.issueTokens(memberId);
     }
 
     static Map<String, Integer> normalizeOrderCounts(Map<String, Long> raw) {

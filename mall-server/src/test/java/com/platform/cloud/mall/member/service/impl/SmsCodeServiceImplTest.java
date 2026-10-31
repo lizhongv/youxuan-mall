@@ -1,14 +1,13 @@
 package com.platform.cloud.mall.member.service.impl;
 
 import com.platform.cloud.bootstrap.common.exception.BusinessException;
+import com.platform.cloud.bootstrap.common.web.ResultCode;
+import com.platform.cloud.mall.common.security.CaptchaService;
+import com.platform.cloud.mall.common.security.RedisCounter;
 import com.platform.cloud.mall.member.config.SmsProperties;
-import com.platform.cloud.mall.member.entity.MbrMember;
-import com.platform.cloud.mall.member.mapper.MbrMemberMapper;
 import com.platform.cloud.mall.member.support.SmsScene;
 import com.platform.cloud.mall.member.support.SmsSender;
 import com.platform.cloud.mall.member.vo.SmsCodeVO;
-import com.platform.cloud.mall.testsupport.TableInfoTestSupport;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -19,17 +18,21 @@ import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * 验证码规则：6 位、5 分钟、60 秒间隔、错误 5 次作废、场景隔离、开发模式回显。
+ * 验证码规则：图形验证码前置、IP / 全站频控、6 位、5 分钟、60 秒间隔、错误 5 次作废、场景隔离、
+ * 不泄露手机号是否注册、开发模式回显。
  */
 class SmsCodeServiceImplTest {
 
@@ -39,15 +42,11 @@ class SmsCodeServiceImplTest {
 
     private StringRedisTemplate redis;
     private ValueOperations<String, String> ops;
-    private MbrMemberMapper memberMapper;
+    private RedisCounter counter;
+    private CaptchaService captcha;
     private SmsSender sender;
     private SmsProperties props;
     private SmsCodeServiceImpl service;
-
-    @BeforeAll
-    static void initTables() {
-        TableInfoTestSupport.init(MbrMember.class);
-    }
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -55,18 +54,24 @@ class SmsCodeServiceImplTest {
         redis = mock(StringRedisTemplate.class);
         ops = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(ops);
-        memberMapper = mock(MbrMemberMapper.class);
+        counter = mock(RedisCounter.class);
+        captcha = mock(CaptchaService.class);
         sender = mock(SmsSender.class);
         props = new SmsProperties();
-        service = new SmsCodeServiceImpl(redis, memberMapper, sender, props);
+        props.setDevMode(true);
+        service = new SmsCodeServiceImpl(redis, counter, captcha, sender, props);
+        when(captcha.verify(CaptchaService.SCOPE_APP, "cid", "2345")).thenReturn(true);
         when(ops.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
-        when(ops.increment(anyString())).thenReturn(1L);
-        when(memberMapper.selectCount(any())).thenReturn(0L);
+        when(counter.incrementInWindow(anyString(), any())).thenReturn(1L);
+    }
+
+    private SmsCodeVO send(SmsScene scene) {
+        return service.send(MOBILE, scene, "cid", "2345");
     }
 
     @Test
     void sendStoresSixDigitCodeForFiveMinutesAndReturnsDevCode() {
-        SmsCodeVO vo = service.send(MOBILE, SmsScene.LOGIN);
+        SmsCodeVO vo = send(SmsScene.LOGIN);
 
         ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
         verify(ops).set(eq(CODE_KEY), code.capture(), eq(Duration.ofMinutes(5)));
@@ -77,16 +82,49 @@ class SmsCodeServiceImplTest {
     }
 
     @Test
-    void devCodeHiddenWhenDevModeOff() {
+    void devCodeHiddenByDefault() {
         props.setDevMode(false);
-        assertThat(service.send(MOBILE, SmsScene.LOGIN).getDevCode()).isNull();
+        assertThat(new SmsProperties().isDevMode()).isFalse();
+        assertThat(send(SmsScene.LOGIN).getDevCode()).isNull();
+    }
+
+    @Test
+    void wrongCaptchaIsRejectedBeforeAnyQuotaIsConsumed() {
+        assertThatThrownBy(() -> service.send(MOBILE, SmsScene.LOGIN, "cid", "9999"))
+                .hasMessageContaining("图形验证码");
+        verifyNoInteractions(counter, sender);
+        verify(ops, never()).setIfAbsent(anyString(), anyString(), any(Duration.class));
+    }
+
+    @Test
+    void missingCaptchaIsRejected() {
+        assertThatThrownBy(() -> service.send(MOBILE, SmsScene.LOGIN, null, null)).hasMessageContaining("图形验证码");
+        verifyNoInteractions(sender);
+    }
+
+    @Test
+    void globalPerMinuteLimitActsAsCostFuse() {
+        when(counter.incrementInWindow(startsWith("mall:sms:global:"), any())).thenReturn(61L);
+
+        BusinessException e = catchThrowableOfType(() -> send(SmsScene.LOGIN), BusinessException.class);
+        assertThat(e.getCode()).isEqualTo(ResultCode.DUPLICATE_REQUEST.getCode());
+        assertThat(e).hasMessageContaining("繁忙");
+        verifyNoInteractions(sender);
+    }
+
+    @Test
+    void ipHourlyLimitIsEnforced() {
+        when(counter.incrementInWindow(startsWith("mall:sms:ip:"), eq(Duration.ofHours(1)))).thenReturn(21L);
+
+        assertThatThrownBy(() -> send(SmsScene.LOGIN)).hasMessageContaining("频繁");
+        verifyNoInteractions(sender);
     }
 
     @Test
     void secondSendWithinSixtySecondsIsRejected() {
         when(ops.setIfAbsent(eq("mall:sms:interval:" + MOBILE), anyString(), any(Duration.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> service.send(MOBILE, SmsScene.LOGIN))
+        assertThatThrownBy(() -> send(SmsScene.LOGIN))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("60 秒");
         verify(sender, never()).sendCode(anyString(), any(), anyString());
@@ -94,26 +132,25 @@ class SmsCodeServiceImplTest {
 
     @Test
     void dailyLimitIsEnforced() {
-        when(ops.increment(anyString())).thenReturn(11L);
-        assertThatThrownBy(() -> service.send(MOBILE, SmsScene.LOGIN)).hasMessageContaining("上限");
+        when(counter.incrementInWindow(startsWith("mall:sms:daily:"), any())).thenReturn(11L);
+        assertThatThrownBy(() -> send(SmsScene.LOGIN)).hasMessageContaining("上限");
     }
 
+    /** 注册 / 重置场景都直接发送：发送接口不能成为「手机号是否已注册」的查询工具 */
     @Test
-    void registerSceneRejectsRegisteredMobile() {
-        when(memberMapper.selectCount(any())).thenReturn(1L);
-        assertThatThrownBy(() -> service.send(MOBILE, SmsScene.REGISTER)).hasMessageContaining("已注册");
-    }
+    void registerAndResetScenesDoNotRevealRegistration() {
+        send(SmsScene.REGISTER);
+        send(SmsScene.RESET);
 
-    @Test
-    void resetSceneRequiresRegisteredMobile() {
-        assertThatThrownBy(() -> service.send(MOBILE, SmsScene.RESET)).hasMessageContaining("未注册");
+        verify(sender).sendCode(eq(MOBILE), eq(SmsScene.REGISTER), anyString());
+        verify(sender).sendCode(eq(MOBILE), eq(SmsScene.RESET), anyString());
     }
 
     @Test
     void senderFailureReleasesIntervalLock() {
         doThrow(new RuntimeException("channel down")).when(sender).sendCode(anyString(), any(), anyString());
 
-        assertThatThrownBy(() -> service.send(MOBILE, SmsScene.LOGIN)).hasMessageContaining("短信发送失败");
+        assertThatThrownBy(() -> send(SmsScene.LOGIN)).hasMessageContaining("短信发送失败");
         verify(redis).delete("mall:sms:interval:" + MOBILE);
         verify(redis).delete(CODE_KEY);
     }
@@ -137,7 +174,7 @@ class SmsCodeServiceImplTest {
     @Test
     void wrongCodeCountsFailures() {
         when(ops.get(CODE_KEY)).thenReturn("123456");
-        when(ops.increment(FAIL_KEY)).thenReturn(1L);
+        when(counter.incrementInWindow(eq(FAIL_KEY), any())).thenReturn(1L);
 
         assertThatThrownBy(() -> service.verify(MOBILE, SmsScene.LOGIN, "000000")).hasMessage("验证码错误");
         verify(redis, never()).delete(CODE_KEY);
@@ -146,7 +183,7 @@ class SmsCodeServiceImplTest {
     @Test
     void fifthWrongAttemptInvalidatesCode() {
         when(ops.get(CODE_KEY)).thenReturn("123456");
-        when(ops.increment(FAIL_KEY)).thenReturn(5L);
+        when(counter.incrementInWindow(eq(FAIL_KEY), any())).thenReturn(5L);
 
         assertThatThrownBy(() -> service.verify(MOBILE, SmsScene.LOGIN, "000000")).hasMessageContaining("次数过多");
         verify(redis).delete(CODE_KEY);

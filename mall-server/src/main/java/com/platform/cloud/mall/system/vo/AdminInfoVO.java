@@ -15,4 +15,6 @@ public class AdminInfoVO {
     private List<String> roles;
     private List<String> permissions;
     private List<MenuTreeVO> menus;
+    /** true 时前端应直接跳到修改密码页：其他管理端接口会返回 40301 */
+    private Boolean mustChangePassword;
 }

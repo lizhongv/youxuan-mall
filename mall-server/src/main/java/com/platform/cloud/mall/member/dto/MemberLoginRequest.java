@@ -16,4 +16,11 @@ public class MemberLoginRequest {
     @NotBlank
     @Size(max = 64)
     private String password;
+
+    /** 图形验证码（GET /app/auth/captcha）；连续失败 2 次后必填 */
+    @Size(max = 64)
+    private String captchaId;
+
+    @Size(max = 16)
+    private String captchaCode;
 }

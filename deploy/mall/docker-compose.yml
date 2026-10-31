@@ -64,11 +64,13 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       REDIS_HOST: redis
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # 运行模式：prod（默认，真实营业）/ demo（演示）。prod 下演示开关被强制关闭，密钥为默认值时拒绝启动
+      MALL_PROFILE: ${MALL_PROFILE:-prod}
       MALL_JWT_SECRET: ${MALL_JWT_SECRET}
       MALL_INIT_ADMIN_PASSWORD: ${MALL_INIT_ADMIN_PASSWORD}
-      # Spring 宽松绑定：mall.sms.dev-mode → MALL_SMS_DEVMODE
-      MALL_SMS_DEVMODE: ${MALL_SMS_DEV_MODE:-true}
-      MALL_PAY_MOCKENABLED: ${MALL_PAY_MOCK_ENABLED:-true}
+      # 以下两项只在 demo 模式生效，prod 模式下无论取值都被强制为 false；demo 演示机需在 .env 中设为 true
+      MALL_SMS_DEV_MODE: ${MALL_SMS_DEV_MODE:-false}
+      MALL_PAY_MOCK_ENABLED: ${MALL_PAY_MOCK_ENABLED:-false}
       MALL_UPLOAD_DIR: /app/uploads
       LOG_PATH: /app/logs
     volumes:

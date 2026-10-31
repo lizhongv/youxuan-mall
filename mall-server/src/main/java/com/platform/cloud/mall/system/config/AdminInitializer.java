@@ -50,7 +50,7 @@ public class AdminInitializer implements ApplicationRunner {
             transactionTemplate.executeWithoutResult(status -> createAdmin());
             log.info("已创建内置超级管理员 admin");
             if (DEFAULT_PASSWORD.equals(props.getInitAdminPassword())) {
-                log.warn("admin 使用默认初始密码，请登录后台立即修改，或部署时设置 MALL_INIT_ADMIN_PASSWORD");
+                log.warn("admin 使用默认初始密码，首次登录后会被要求修改；也可部署时设置 MALL_INIT_ADMIN_PASSWORD");
             }
         } catch (DuplicateKeyException e) {
             // 多实例同时首次启动，另一个实例已经创建
@@ -81,6 +81,9 @@ public class AdminInitializer implements ApplicationRunner {
         admin.setStatus(SystemConstants.ENABLED);
         admin.setLastLoginIp("");
         admin.setRemark("系统内置账号");
+        // 初始口令来自部署配置（常为默认值），首次登录必须修改
+        admin.setMustChangePassword(1);
+        admin.setTokenVersion(0);
         adminMapper.insert(admin);
         adminRoleMapper.insert(new SysAdminRole(admin.getId(), superRole.getId()));
     }

@@ -1,6 +1,8 @@
 package com.platform.cloud.mall.member.controller.app;
 
 import com.platform.cloud.bootstrap.common.web.R;
+import com.platform.cloud.mall.common.security.CaptchaService;
+import com.platform.cloud.mall.common.security.CaptchaVO;
 import com.platform.cloud.mall.member.dto.MemberLoginRequest;
 import com.platform.cloud.mall.member.dto.MemberRefreshRequest;
 import com.platform.cloud.mall.member.dto.MemberRegisterRequest;
@@ -16,6 +18,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,11 +35,19 @@ public class MemberAuthController {
 
     private final SmsCodeService smsCodeService;
     private final MemberAuthService authService;
+    private final CaptchaService captchaService;
+
+    @Operation(summary = "获取图形验证码（发短信前、密码登录失败 2 次后使用）")
+    @GetMapping("/captcha")
+    public R<CaptchaVO> captcha() {
+        return R.ok(captchaService.create(CaptchaService.SCOPE_APP));
+    }
 
     @Operation(summary = "发送短信验证码")
     @PostMapping("/sms-code")
     public R<SmsCodeVO> smsCode(@Valid @RequestBody SmsCodeRequest req) {
-        return R.ok(smsCodeService.send(req.getMobile(), SmsScene.valueOf(req.getScene())));
+        return R.ok(smsCodeService.send(req.getMobile(), SmsScene.valueOf(req.getScene()),
+                req.getCaptchaId(), req.getCaptchaCode()));
     }
 
     @Operation(summary = "手机号注册")

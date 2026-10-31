@@ -5,6 +5,7 @@ import com.platform.cloud.bootstrap.common.web.PageVO;
 import com.platform.cloud.bootstrap.common.web.R;
 import com.platform.cloud.mall.common.security.SecurityUtils;
 import com.platform.cloud.mall.member.dto.AccountLogQuery;
+import com.platform.cloud.mall.member.dto.MemberLogoutRequest;
 import com.platform.cloud.mall.member.dto.MemberPasswordRequest;
 import com.platform.cloud.mall.member.dto.MemberProfileRequest;
 import com.platform.cloud.mall.member.service.MemberAccountService;
@@ -12,6 +13,7 @@ import com.platform.cloud.mall.member.service.MemberAuthService;
 import com.platform.cloud.mall.member.service.MemberProfileService;
 import com.platform.cloud.mall.member.vo.AccountLogVO;
 import com.platform.cloud.mall.member.vo.MemberProfileVO;
+import com.platform.cloud.mall.member.vo.MemberTokenVO;
 import com.platform.cloud.mall.system.service.FileService;
 import com.platform.cloud.mall.system.vo.FileVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -63,11 +65,10 @@ public class MemberCenterController {
         return R.ok();
     }
 
-    @Operation(summary = "修改密码")
+    @Operation(summary = "修改密码（返回新令牌，旧令牌全部失效）")
     @PutMapping("/password")
-    public R<Void> changePassword(@Valid @RequestBody MemberPasswordRequest req) {
-        profileService.changePassword(SecurityUtils.currentUserId(), req);
-        return R.ok();
+    public R<MemberTokenVO> changePassword(@Valid @RequestBody MemberPasswordRequest req) {
+        return R.ok(profileService.changePassword(SecurityUtils.currentUserId(), req));
     }
 
     @Operation(summary = "我的账户流水")
@@ -83,17 +84,17 @@ public class MemberCenterController {
     public R<FileVO> upload(@RequestPart("file") MultipartFile file,
                             @RequestParam(value = "bizType", required = false) String bizType) {
         String type = bizType != null && APP_BIZ_TYPES.contains(bizType) ? bizType : "member";
-        return R.ok(fileService.upload(file, type));
+        return R.ok(fileService.uploadByMember(SecurityUtils.currentUserId(), file, type));
     }
 
     @Operation(summary = "退出登录")
     @PostMapping("/logout")
-    public R<Void> logout(HttpServletRequest request) {
+    public R<Void> logout(HttpServletRequest request,
+                          @Valid @RequestBody(required = false) MemberLogoutRequest req) {
         String header = request.getHeader(jwtProperties.getHeader());
         String prefix = jwtProperties.getTokenPrefix();
-        if (header != null && header.startsWith(prefix)) {
-            authService.logout(header.substring(prefix.length()).trim());
-        }
+        String access = header != null && header.startsWith(prefix) ? header.substring(prefix.length()).trim() : null;
+        authService.logout(access, req == null ? null : req.getRefreshToken());
         return R.ok();
     }
 }

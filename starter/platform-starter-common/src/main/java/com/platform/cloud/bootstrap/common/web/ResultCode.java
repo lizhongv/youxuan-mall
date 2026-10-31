@@ -16,6 +16,8 @@ public enum ResultCode {
     PARAM_MISSING(40002, "缺少必要参数"),
     UNAUTHORIZED(40100, "未登录或登录已过期"),
     FORBIDDEN(40300, "无权访问"),
+    /** 管理员仍在使用初始密码或被他人重置的密码：除查看个人信息、改密码、登出外的管理端接口一律拒绝 */
+    PASSWORD_CHANGE_REQUIRED(40301, "请先修改初始密码"),
     NOT_FOUND(40400, "资源不存在"),
     METHOD_NOT_ALLOWED(40500, "请求方法不允许"),
     DUPLICATE_REQUEST(42900, "请求过于频繁，请稍后再试"),

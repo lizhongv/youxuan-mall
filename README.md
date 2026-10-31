@@ -36,8 +36,8 @@ bash deploy/mall/deploy.sh <ssh 主机>
 | 地址 | 说明 |
 |---|---|
 | `http://<主机>:8090/` | 移动商城（手机或浏览器打开） |
-| `http://<主机>:8090/console/` | 管理后台，初始账号 `admin` / `admin123`（登录后请立即修改） |
-| `http://<主机>:8090/doc.html` | 接口文档 |
+| `http://<主机>:8090/console/` | 管理后台，初始账号 `admin` / `admin123`（prod 模式首次登录强制修改） |
+| `http://<主机>:8090/doc.html` | 接口文档（仅 `MALL_PROFILE=demo`） |
 
 首次部署会自动生成随机数据库、Redis、JWT 密钥，并导入 8 个类目、37 个商品的演示数据。部署细节、运维命令与上线检查清单见 [deploy/mall/README.md](deploy/mall/README.md)。
 
@@ -45,7 +45,8 @@ bash deploy/mall/deploy.sh <ssh 主机>
 
 ```bash
 # 1. 准备 MySQL 8（建库 mall）与 Redis 7，连接信息用环境变量传入，表结构与演示数据由 Flyway 自动创建
-export MYSQL_HOST=127.0.0.1 MYSQL_USER=mall MYSQL_PASSWORD=*** REDIS_HOST=127.0.0.1 REDIS_PASSWORD=***
+# 本机开发用 demo 模式（默认 prod 模式会因开发用的默认密钥拒绝启动，见 deploy/mall/README.md「运行模式」）
+export MALL_PROFILE=demo MYSQL_HOST=127.0.0.1 MYSQL_USER=mall MYSQL_PASSWORD=*** REDIS_HOST=127.0.0.1 REDIS_PASSWORD=***
 ./mvnw -pl mall-server -am package -DskipTests && java -jar mall-server/target/mall-server.jar   # 服务端 :8081
 
 # 2. 前端：默认代理到已部署环境；直连本地服务端加 VITE_PROXY_TARGET=http://localhost:8081 VITE_PROXY_DIRECT=1
@@ -79,11 +80,13 @@ cd web/mall-h5 && npm install && npm run dev      # 商城 http://localhost:5174
 
 ## 安全
 
-- 密码 BCrypt；JWT 密钥只从环境变量注入；后台登录失败 5 次锁定 15 分钟。
-- 管理端与商城端令牌按角色隔离；后台按钮级权限 `@PreAuthorize("@ss.has('...')")`。
+- **默认即生产**：`MALL_PROFILE` 默认 `prod`，强制关闭模拟支付、验证码回显与接口文档；JWT 密钥、数据库 / Redis 密码为默认值时拒绝启动。演示环境显式设置 `MALL_PROFILE=demo`，见 [部署文档「运行模式」](deploy/mall/README.md#运行模式mall_profile)。
+- 密码 BCrypt；admin 初始密码首次登录强制修改；登录按「账号 + IP」失败锁定，失败 2 次后要求图形验证码，IP 限流。
+- 令牌带版本号：改密、冻结、停用、调整角色后旧令牌立即失效；登出同时作废 access 与 refresh；refresh 一次性。
+- 管理端与商城端令牌按角色隔离；后台按钮级权限 `@PreAuthorize("@ss.has('...')")`；非超管不能操作超管账号与超管角色。
 - 会员数据查询强制带当前用户 ID，防越权；手机号列表脱敏。
-- 上传文件校验扩展名白名单与大小，随机文件名，防目录穿越；SQL 全部参数化。
-- 演示开关：`MALL_SMS_DEV_MODE`（验证码回显）与 `MALL_PAY_MOCK_ENABLED`（模拟支付）**上线前必须关闭**，见部署文档检查清单。
+- 上传文件校验扩展名白名单、文件头与大小，随机文件名，防目录穿越；富文本服务端 XSS 清洗；SQL 全部参数化。
+- 短信发送前须过图形验证码，并有手机号 / IP / 全站三级频控，发送接口不泄露手机号是否注册。
 
 ## 项目结构
 

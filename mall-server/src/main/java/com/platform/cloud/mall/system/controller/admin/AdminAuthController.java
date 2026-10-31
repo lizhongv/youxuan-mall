@@ -2,10 +2,13 @@ package com.platform.cloud.mall.system.controller.admin;
 
 import com.platform.cloud.bootstrap.common.security.JwtProperties;
 import com.platform.cloud.bootstrap.common.web.R;
+import com.platform.cloud.mall.common.security.CaptchaService;
+import com.platform.cloud.mall.common.security.CaptchaVO;
 import com.platform.cloud.mall.common.security.SecurityUtils;
 import com.platform.cloud.mall.system.dto.AdminLoginRequest;
 import com.platform.cloud.mall.system.dto.AdminProfileRequest;
 import com.platform.cloud.mall.system.dto.ChangePasswordRequest;
+import com.platform.cloud.mall.system.dto.LogoutRequest;
 import com.platform.cloud.mall.system.dto.RefreshTokenRequest;
 import com.platform.cloud.mall.system.service.AdminAuthService;
 import com.platform.cloud.mall.system.vo.AdminInfoVO;
@@ -23,7 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 管理端认证与个人中心。login / refresh 在安全配置里公开，其余需要管理员令牌。
+ * 管理端认证与个人中心。login / refresh / captcha 在安全配置里公开，其余需要管理员令牌。
  */
 @Tag(name = "认证与个人")
 @RestController
@@ -32,7 +35,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminAuthController {
 
     private final AdminAuthService authService;
+    private final CaptchaService captchaService;
     private final JwtProperties jwtProperties;
+
+    @Operation(summary = "获取登录图形验证码")
+    @GetMapping("/captcha")
+    public R<CaptchaVO> captcha() {
+        return R.ok(captchaService.create(CaptchaService.SCOPE_ADMIN));
+    }
 
     @Operation(summary = "登录")
     @PostMapping("/login")
@@ -48,12 +58,12 @@ public class AdminAuthController {
 
     @Operation(summary = "退出登录")
     @PostMapping("/logout")
-    public R<Void> logout(HttpServletRequest request) {
+    public R<Void> logout(HttpServletRequest request,
+                          @Valid @RequestBody(required = false) LogoutRequest req) {
         String header = request.getHeader(jwtProperties.getHeader());
         String prefix = jwtProperties.getTokenPrefix();
-        if (header != null && header.startsWith(prefix)) {
-            authService.logout(header.substring(prefix.length()).trim());
-        }
+        String access = header != null && header.startsWith(prefix) ? header.substring(prefix.length()).trim() : null;
+        authService.logout(access, req == null ? null : req.getRefreshToken());
         return R.ok();
     }
 
@@ -70,10 +80,9 @@ public class AdminAuthController {
         return R.ok();
     }
 
-    @Operation(summary = "修改密码")
+    @Operation(summary = "修改密码（返回新令牌，旧令牌全部失效）")
     @PutMapping("/password")
-    public R<Void> changePassword(@Valid @RequestBody ChangePasswordRequest req) {
-        authService.changePassword(SecurityUtils.currentUserId(), req);
-        return R.ok();
+    public R<TokenVO> changePassword(@Valid @RequestBody ChangePasswordRequest req) {
+        return R.ok(authService.changePassword(SecurityUtils.currentUserId(), req));
     }
 }

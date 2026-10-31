@@ -1,4 +1,7 @@
-# 商城服务端配置。环境相关的值全部来自环境变量，默认值只适用于本机开发。
+# 商城服务端配置。环境相关的值全部来自环境变量。
+# 运行模式 MALL_PROFILE：prod（默认，真实营业）/ demo（演示、本机开发）。
+#   prod 下模拟支付、验证码回显、接口文档被强制关闭，密钥为默认值时拒绝启动，见 MallProfileEnvironmentPostProcessor；
+#   本机开发请设置 MALL_PROFILE=demo，demo 专属默认值在 application-demo.yml。
 server:
   port: ${SERVER_PORT:8081}
   shutdown: graceful
@@ -10,6 +13,8 @@ server:
 spring:
   application:
     name: mall-server
+  profiles:
+    active: ${MALL_PROFILE:prod}
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DB:mall}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
     username: ${MYSQL_USER:mall}
@@ -61,12 +66,15 @@ management:
 
 knife4j:
   enable: true
-  # 生产环境可设 KNIFE4J_PRODUCTION=true 关闭文档
+  # prod 模式强制为 true（屏蔽 /doc.html），demo 模式默认开放
   production: ${KNIFE4J_PRODUCTION:false}
   setting:
     language: zh_cn
 
 springdoc:
+  # prod 模式强制关闭 /v3/api-docs 与 swagger-ui：接口清单是攻击者最好的地图
+  api-docs:
+    enabled: true
   group-configs:
     - group: admin
       display-name: 管理端
@@ -77,20 +85,31 @@ springdoc:
 
 platform:
   jwt:
-    # 生产环境务必通过 MALL_JWT_SECRET 注入随机密钥（≥ 32 字节）
-    secret: ${MALL_JWT_SECRET:mall-dev-only-jwt-secret-please-change-in-production-32b}
+    # 必须通过 MALL_JWT_SECRET 注入随机密钥（≥ 32 字节）；不提供默认值，prod 下缺失或为占位值时拒绝启动
+    secret: ${MALL_JWT_SECRET:}
     access-ttl: ${MALL_JWT_ACCESS_TTL:PT2H}
     refresh-ttl: P7D
     issuer: mall-server
 
 mall:
+  # 仅首次建库时创建 admin 使用；admin 首次登录后被强制修改密码
   init-admin-password: ${MALL_INIT_ADMIN_PASSWORD:admin123}
+  security:
+    force-change-initial-password: ${MALL_FORCE_CHANGE_INITIAL_PASSWORD:true}
+    captcha-echo: false
+    login-ip-per-minute: ${MALL_LOGIN_IP_PER_MINUTE:20}
+  sms:
+    # 验证码回显（devCode），仅 demo 模式可开；prod 强制 false
+    dev-mode: ${MALL_SMS_DEV_MODE:false}
+    # 同一 IP 每小时、全站每分钟的发送上限：图形验证码之外再兜一层，防止被刷短信费
+    ip-hourly-limit: ${MALL_SMS_IP_HOURLY_LIMIT:20}
+    global-per-minute-limit: ${MALL_SMS_GLOBAL_PER_MINUTE_LIMIT:60}
   upload:
     dir: ${MALL_UPLOAD_DIR:./data/uploads}
     url-prefix: ${MALL_UPLOAD_URL_PREFIX:/uploads}
   pay:
-    # 模拟支付（立即成功），演示与冒烟测试用；接入真实支付渠道后生产环境务必设为 false
-    mock-enabled: ${MALL_PAY_MOCK_ENABLED:true}
+    # 模拟支付（立即成功），仅 demo 模式可开；prod 模式强制 false，否则任何人都能「零元购」
+    mock-enabled: ${MALL_PAY_MOCK_ENABLED:false}
 
 logging:
   level:

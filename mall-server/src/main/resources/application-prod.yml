@@ -1,0 +1,13 @@
+# prod 模式（默认）：真实营业。
+# 下列开关由 MallProfileEnvironmentPostProcessor 以最高优先级强制，环境变量也无法打开，这里写出来只为便于查阅：
+#   mall.pay.mock-enabled=false              模拟支付关闭
+#   mall.sms.dev-mode=false                  验证码不回显
+#   mall.security.captcha-echo=false         图形验证码不回显
+#   mall.security.force-change-initial-password=true  初始密码必须修改
+#   springdoc.api-docs.enabled=false / knife4j.enable=false / knife4j.production=true  接口文档关闭
+#   （/doc.html 等路径在安全配置中也不再放行）
+# 启动时还会检查 JWT 密钥、数据库 / Redis 密码，为占位值或弱口令则拒绝启动（StartupSafetyCheck）。
+spring:
+  datasource:
+    # 不提供默认口令：未设置 MYSQL_PASSWORD 时由启动检查给出可读提示
+    password: ${MYSQL_PASSWORD:}

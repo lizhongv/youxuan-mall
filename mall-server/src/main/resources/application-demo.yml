@@ -1,0 +1,21 @@
+# demo 模式（MALL_PROFILE=demo）：演示机、本机开发、冒烟测试。
+# 这里的默认值都是「为了开箱即用」而公开的，因此 demo 模式切勿用于真实营业。
+spring:
+  datasource:
+    password: ${MYSQL_PASSWORD:mall123}
+
+platform:
+  jwt:
+    # 公开的演示密钥：任何人都能用它伪造令牌，prod 模式会拒绝该值
+    secret: ${MALL_JWT_SECRET:mall-demo-only-jwt-secret-never-use-in-production-0123456789}
+
+mall:
+  security:
+    # 演示账号 admin/admin123 直接体验，不强制改密
+    force-change-initial-password: ${MALL_FORCE_CHANGE_INITIAL_PASSWORD:false}
+    # 图形验证码答案随响应返回，供冒烟测试脚本自动通过
+    captcha-echo: ${MALL_CAPTCHA_ECHO:true}
+  sms:
+    dev-mode: ${MALL_SMS_DEV_MODE:true}
+  pay:
+    mock-enabled: ${MALL_PAY_MOCK_ENABLED:true}
