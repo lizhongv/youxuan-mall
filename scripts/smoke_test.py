@@ -6,11 +6,14 @@
 import argparse
 import random
 import sys
+import time
 import uuid
 
 import httpx
 
 results: list[tuple[str, bool, str]] = []
+# 测试会员的余额支付密码（非连续、非重复数字，满足弱密码规则）
+PAY_PASSWORD = "258369"
 
 
 class Api:
@@ -112,6 +115,7 @@ def main():
             "mobile": mobile, "scene": "REGISTER",
             "captchaId": cap["captchaId"], "captchaCode": cap["devCode"]})["devCode"]
         assert code, "短信验证码未回显：demo 模式需设置 MALL_SMS_DEV_MODE=true"
+        ctx["smsAt"] = time.time()
         tok = buyer.call("POST", "/app/auth/register", json={"mobile": mobile, "code": code, "password": "Test1234"})
         buyer.token = tok["accessToken"]
         prof = buyer.call("GET", "/app/member/profile")
@@ -146,7 +150,20 @@ def main():
         submit["memberCouponId"] = confirm.get("memberCouponId")
         order = buyer.call("POST", "/app/order", json=submit, idem=True)
         assert abs(float(order["payAmount"]) - float(confirm["payAmount"])) < 0.001, "下单金额与预览不一致"
-        buyer.call("POST", f"/app/order/{order['orderId']}/pay", json={"payType": "BALANCE"}, idem=True)
+        channels = buyer.call("GET", "/app/pay/channels", params={"orderId": order["orderId"], "inWechat": False})
+        assert any(c["type"] == "BALANCE" and c["enabled"] for c in channels), f"余额支付不可用：{channels}"
+        # 余额支付需要支付密码：图形验证码 → 短信验证码（demo 回显）→ 设置。
+        # 同一手机号 60 秒内只能发一次验证码（注册时刚发过），这里等过限频窗口，与真实用户的节奏一致
+        time.sleep(max(0, 61 - (time.time() - ctx["smsAt"])))
+        cap = buyer.call("GET", "/app/auth/captcha")
+        sms = buyer.call("POST", "/app/member/pay-password/sms-code",
+                         json={"captchaId": cap["captchaId"], "captchaCode": cap["devCode"]})
+        buyer.call("PUT", "/app/member/pay-password", json={"code": sms["devCode"], "payPassword": PAY_PASSWORD})
+        r = buyer.http.post(f"/api/app/order/{order['orderId']}/pay", json={"payType": "BALANCE", "payPassword": "000001"},
+                            headers={"Authorization": f"Bearer {buyer.token}", "X-Idempotent-Key": str(uuid.uuid4())})
+        assert r.json().get("code") == 60011, f"错误支付密码应返回 60011，实际 {r.json()}"
+        buyer.call("POST", f"/app/order/{order['orderId']}/pay",
+                   json={"payType": "BALANCE", "payPassword": PAY_PASSWORD}, idem=True)
         detail = buyer.call("GET", f"/app/order/{order['orderId']}")
         assert detail["status"] == "PENDING_DELIVERY", detail["status"]
         ctx["order1"] = detail
@@ -157,6 +174,8 @@ def main():
     def _():
         oid = ctx["order1"]["id"]
         admin.call("PUT", f"/admin/trade/order/{oid}/deliver", json={"deliveryCompany": "顺丰速运", "deliveryNo": "SF1234567890"})
+        logistics = buyer.call("GET", f"/app/order/{oid}/logistics")
+        assert "traces" in logistics, f"物流接口出参异常：{logistics}"
         buyer.call("PUT", f"/app/order/{oid}/receive")
         item = ctx["order1"]["items"][0]
         buyer.call("POST", "/app/review", json={"orderItemId": item["id"], "rating": 5, "content": "质量很好，物流很快", "images": [], "anonymous": False})
@@ -166,6 +185,43 @@ def main():
         assert detail["status"] == "COMPLETED", detail["status"]
         prof = buyer.call("GET", "/app/member/profile")
         return f"订单完成，积分 {prof['points']}"
+
+    @step("退货退款：退货地址 → 买家寄回 → 商家确认收货 → 退回余额并扣回积分")
+    def _():
+        admin.call("PUT", "/admin/system/config/batch", json={"items": [
+            {"configKey": "trade.return_receiver_name", "configValue": "优选商城售后部"},
+            {"configKey": "trade.return_receiver_mobile", "configValue": "400-800-8888"},
+            {"configKey": "trade.return_address", "configValue": "浙江省杭州市余杭区仓前街道 1 号仓"}]})
+        item = ctx["order1"]["items"][0]
+        before = buyer.call("GET", "/app/member/profile")
+        buyer.call("POST", "/app/aftersale", json={
+            "orderItemId": item["id"], "type": "RETURN_REFUND", "reason": "质量问题", "description": "冒烟测试",
+            "images": [], "amount": item["payAmount"]})
+        page = admin.call("GET", "/admin/trade/aftersale/page", params={"orderNo": ctx["order1"]["orderNo"]})
+        aid = page["records"][0]["id"]
+        admin.call("PUT", f"/admin/trade/aftersale/{aid}/approve", json={"remark": "请寄回"})
+        detail = buyer.call("GET", f"/app/aftersale/{aid}")
+        assert detail["status"] == "WAIT_RETURN" and detail["returnAddress"], f"未返回退货地址：{detail}"
+        buyer.call("PUT", f"/app/aftersale/{aid}/return", json={"returnCompany": "顺丰速运", "returnNo": "SF9876543210"})
+        admin.call("PUT", f"/admin/trade/aftersale/{aid}/receive")
+        detail = buyer.call("GET", f"/app/aftersale/{aid}")
+        assert detail["status"] == "REFUNDED", detail["status"]
+        after = buyer.call("GET", "/app/member/profile")
+        assert float(after["balance"]) > float(before["balance"]), "退款未退回余额"
+        assert int(after["points"]) < int(before["points"]), "确认收货发放的积分未按比例扣回"
+        return f"余额 {before['balance']} → {after['balance']}，积分 {before['points']} → {after['points']}"
+
+    @step("运费模板：新增 → 下拉可见 → 删除")
+    def _():
+        tid = admin.call("POST", "/admin/trade/freight-template", json={
+            "name": "冒烟测试模板", "chargeType": "BY_COUNT", "isDefault": 0, "status": 1,
+            "rules": [{"provinces": [], "firstUnit": 1, "firstFee": 8, "nextUnit": 1, "nextFee": 2},
+                      {"provinces": ["新疆维吾尔自治区"], "firstUnit": 1, "firstFee": 20, "nextUnit": 1, "nextFee": 10}],
+            "frees": [{"provinces": [], "minCount": 3, "minAmount": 0}]})
+        options = admin.call("GET", "/admin/trade/freight-template/list")
+        assert any(o["id"] == tid for o in options), "新模板不在下拉列表中"
+        admin.call("DELETE", f"/admin/trade/freight-template/{tid}")
+        return "增删正常"
 
     @step("立即购买 → 模拟支付 → 申请仅退款 → 后台同意 → 订单取消")
     def _():
