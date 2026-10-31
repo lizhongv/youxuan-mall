@@ -2,7 +2,7 @@
 
 > 开箱即用的单店铺电商系统：移动商城 + 管理后台 + 服务端，一条命令部署到任意装有 Docker 的服务器。
 
-![Java](https://img.shields.io/badge/Java-17-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6db33f) ![Vue](https://img.shields.io/badge/Vue-3.5-42b883) ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479a1) ![Tests](https://img.shields.io/badge/单元测试-295%20通过-brightgreen) ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
+![Java](https://img.shields.io/badge/Java-17-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6db33f) ![Vue](https://img.shields.io/badge/Vue-3.5-42b883) ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479a1) ![Tests](https://img.shields.io/badge/单元测试-653%20通过-brightgreen) ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 
 | 移动商城 | | | 管理后台 |
 |---|---|---|---|
@@ -13,15 +13,17 @@
 | 模块 | 买家（移动商城） | 商家（管理后台） |
 |---|---|---|
 | 商品 | 首页导购、类目、搜索排序、商品详情、多规格选择 | 两级类目、品牌、多规格 SKU 自动组合、富文本详情、批量上下架 |
-| 交易 | 购物车、结算（会员折扣 + 优惠券 + 运费自动计算）、余额支付、订单跟踪 | 订单筛选与状态统计、发货、改价、备注、取消、操作日志 |
-| 售后 | 仅退款 / 退货退款、上传凭证、填写退货物流 | 审核、确认收货退款，原路退回余额并回补库存 |
+| 交易 | 购物车、结算（会员折扣 + 优惠券 + 运费模板自动计算，默认地址自动带出）、微信 / 支付宝 / 余额（支付密码）支付、订单与物流轨迹跟踪 | 订单筛选与状态统计、发货、改价、备注、取消、操作日志、物流轨迹、支付流水与查单、运费模板 |
+| 售后 | 仅退款 / 退货退款、上传凭证、查看商家退货地址、填写退货物流 | 审核、确认收货退款，按支付渠道原路退款、回补库存、回收积分 |
 | 评价 | 星级、图文、匿名评价，好评率与筛选 | 回复、显示隐藏 |
 | 营销 | 领券中心、限时秒杀倒计时 | 满减 / 折扣 / 无门槛券（按全场、类目、商品）、秒杀活动、轮播、公告 |
-| 会员 | 验证码 / 密码登录、地址、收藏、足迹、余额积分明细、等级 | 会员管理、调账、等级与折扣 |
-| 运营 | – | 数据概览（销售趋势、订单分布、热销 Top10）、系统参数（运费、超时时间、积分规则） |
+| 会员 | 验证码 / 密码 / 微信授权登录、地址、收藏、足迹、余额积分明细、等级、支付密码 | 会员管理、调账、等级与折扣 |
+| 运营 | – | 数据概览（销售趋势、订单分布、热销 Top10，扣除退款）、系统参数分组：支付、微信、短信、对象存储、物流、交易规则，即改即生效 |
 | 系统 | – | 管理员、角色与按钮级权限、菜单、字典、操作日志、登录日志、浅色 / 深色主题 |
 
-自动化：未支付订单超时关闭、发货后自动确认收货、优惠券过期处理，均为每分钟执行的分布式锁定时任务。
+自动化：未支付订单超时关闭、发货后自动确认收货、优惠券过期处理、支付结果补偿查单与关单后到账自动退款，均为每分钟执行的分布式锁定时任务。
+
+第三方接入（后台填参数即可启用，接入说明见 [支付](docs/mall/payment.md)、[短信 / 存储 / 物流](docs/mall/integration.md)）：微信支付 APIv3、支付宝、微信公众号登录、阿里云 / 腾讯云短信、OSS / COS / MinIO / 七牛、快递100。
 
 ## 快速开始
 
@@ -31,7 +33,7 @@
 bash deploy/mall/deploy.sh <ssh 主机>
 ```
 
-脚本依次完成：单元测试 → 构建 → 打包 → 上传 → 启动 → 全链路冒烟测试。完成后访问：
+脚本依次完成：单元测试 → 构建 → 打包 → 上传 → 启动 → 全链路冒烟测试。第三方依赖由服务器从阿里云 Maven 镜像按清单下载并校验，日常发布只上传约 7MB，慢速网络也能发布。完成后访问：
 
 | 地址 | 说明 |
 |---|---|
@@ -105,17 +107,19 @@ platform-cloud/
 ## 开发
 
 - 演进规划：[docs/重构分析与计划.md](docs/重构分析与计划.md)；开发规范：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；接口契约：[docs/mall/api.md](docs/mall/api.md)（改接口先改契约）。
-- 测试：`./mvnw -pl mall-server -am test`（295 个单元测试）；部署后 `python scripts/smoke_test.py http://<主机>:8090`（11 项全链路检查）。
+- 测试：`./mvnw -pl mall-server -am test`（653 个单元测试）；部署后 `python scripts/smoke_test.py http://<主机>:8090`（13 项全链路检查，需 demo 模式）。
 - 表结构只通过 Flyway 迁移变更：`mall-server/src/main/resources/db/migration`。
 
 ## 路线图
 
-- [ ] 接入微信支付 / 支付宝（`PayChannel` 已预留，回调路径已放行）
-- [ ] 接入阿里云 / 腾讯云短信（实现 `SmsSender` 即可替换）
-- [ ] 微信小程序端（复用 `/app/**` 接口）
-- [ ] 对象存储（实现 `FileStorage` 即可切换到 OSS / COS / MinIO）
-- [ ] 拼团、砍价、满减活动；运费模板
-- [ ] Elasticsearch 商品搜索（实验代码见 `service/goods-service`）
+- [x] 微信支付 / 支付宝、微信公众号登录（v1.1，待真实商户号联调）
+- [x] 阿里云 / 腾讯云短信、对象存储、快递100 物流轨迹（v1.1，待真实账号联调）
+- [x] 运费模板、余额支付密码、退货地址（v1.1）
+- [ ] 微信小程序端（uni-app，复用 `/app/**` 接口）
+- [ ] 营销：满减满折、积分抵扣与签到、余额充值、拼团、砍价、分销
+- [ ] 首页 DIY 装修、消息通知（短信 / 订阅消息 / 后台新订单提醒）
+- [ ] 订单导出、批量发货、电子面单；商品导入导出、回收站、库存预警
+- [ ] 流量与转化统计；Elasticsearch 商品搜索（实验代码见 `service/goods-service`）
 
 ## 贡献与许可
 
