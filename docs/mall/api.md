@@ -85,11 +85,20 @@
   "id": "…", "categoryId": "…", "brandId": "…", "name": "", "subtitle": "", "pic": "", "album": ["url"],
   "detail": "<p>富文本</p>", "unit": "件", "keywords": "", "virtualSales": 0, "sort": 0,
   "status": "ON_SALE", "isNew": 0, "isHot": 0, "isRecommend": 0,
+  "freightTemplateId": "可空，空表示使用默认运费模板",
   "specItems": [{"name": "颜色", "values": ["红", "蓝"]}],
-  "skus": [{"id": "可空", "specValues": ["红"], "code": "", "pic": "", "price": 99.00, "originalPrice": 129.00, "stock": 100}]
+  "skus": [{"id": "可空", "specValues": ["红"], "code": "", "pic": "", "price": 99.00, "originalPrice": 129.00,
+            "stock": 100, "originStock": 80, "weight": 0.500}]
 }
 ```
-无规格商品：`specItems = []`，`skus` 只有一条且 `specValues = []`。保存时 SPU 的 price / originalPrice / stock 由 SKU 汇总。
+无规格商品：`specItems = []`，`skus` 只有一条且 `specValues = []`。保存时 SPU 的 price / originalPrice 由 SKU 汇总，SPU stock 按 SKU 当前库存重算。
+
+- `freightTemplateId`：运费模板（`GET /admin/trade/freight-template/list` 取下拉），空表示默认模板；默认模板也没有时沿用系统参数的一口价 + 满额包邮。
+- `skus[].weight`：单件重量（kg，3 位小数），按重量计费的模板使用，默认 0。
+- **库存差量调整**：修改已有 SKU（带 `id`）时，`stock` 是目标库存，`originStock` 必须原样回传编辑页打开时详情接口返回的 `stock`；
+  服务端执行 `stock = stock + (stock目标 − originStock)` 的条件更新（结果不得 < 0，否则提示「库存已被订单占用…请刷新后重试」），
+  编辑期间的下单扣减 / 取消回补不会被表单旧值覆盖。不传 `originStock` 表示不调整该 SKU 库存；新增 SKU（无 `id`）直接用 `stock`。
+  价格、编码等其他字段照常覆盖，销量永远不由表单修改。
 
 ### 1.5 营销（权限前缀 `marketing:`）
 
@@ -119,6 +128,12 @@
 | GET | `/admin/trade/review/page` | 筛选 `goodsId, rating, status, hasImage` |
 | PUT | `/admin/trade/review/{id}/reply` | `{reply}` |
 | PUT | `/admin/trade/review/{id}/status?status=` | 显示 / 隐藏 |
+| GET | `/admin/trade/freight-template/page` | 运费模板分页，筛选 `keyword`（名称）, `chargeType`, `status`；默认模板排最前 |
+| GET | `/admin/trade/freight-template/list` | 启用中的模板下拉 `[{id, name, chargeType, isDefault}]`（`trade:freight:view` 或 `goods:goods:view`） |
+| GET | `/admin/trade/freight-template/{id}` | 详情 `FreightTemplate` |
+| POST | `/admin/trade/freight-template` | 新增，入参见下，返回 ID（`trade:freight:edit`） |
+| PUT | `/admin/trade/freight-template/{id}` | 修改，规则与包邮条件整体替换（`trade:freight:edit`） |
+| DELETE | `/admin/trade/freight-template/{id}` | 删除；有商品引用时拒绝（`trade:freight:edit`） |
 
 订单 VO：
 ```
@@ -129,6 +144,23 @@
  items: [{id, goodsId, skuId, goodsName, pic, specText, price, quantity, totalAmount, payAmount, aftersaleStatus, reviewed}]}
 ```
 售后 VO：`{id, aftersaleNo, orderId, orderNo, orderItemId, memberId, memberNickname, type, status, statusText, reason, description, images[], amount, quantity, auditRemark, auditTime, returnCompany, returnNo, refundTime, createdAt, item: OrderItem}`
+运费模板 `FreightTemplate`（入参同结构，不含 id / createdAt）：
+```json
+{
+  "id": "…", "name": "普通快递", "chargeType": "BY_COUNT | BY_WEIGHT", "isDefault": 1, "status": 1,
+  "rules": [
+    {"provinces": [], "firstUnit": 1, "firstFee": 8.00, "nextUnit": 1, "nextFee": 2.00},
+    {"provinces": ["新疆维吾尔自治区", "西藏自治区"], "firstUnit": 1, "firstFee": 20.00, "nextUnit": 1, "nextFee": 10.00}
+  ],
+  "frees": [{"provinces": ["广东省"], "minCount": 3, "minAmount": 0}],
+  "createdAt": "…"
+}
+```
+- `rules`：至少一条；`provinces` 为省份名数组，空数组表示「默认地区（全国其他地区）」，最多一条；同一省份不能出现在两条规则里（「广西」与「广西壮族自治区」视为同一省）。
+  按件时单位为件，按重量时单位为 kg；`nextUnit = 0` 表示超出首件 / 首重后不再续费。
+- `frees`：指定地区（空数组 = 全部地区）满 `minCount` 件**或**满 `minAmount` 元（会员折扣后金额）包邮，两者至少设一个。
+- `isDefault = 1` 时其他模板自动取消默认；停用的模板视同不存在，引用它的商品回退到默认模板。
+
 评价 VO：`{id, orderId, goodsId, goodsName, goodsPic, memberId, nickname, avatar, specText, rating, content, images[], anonymous, reply, replyTime, status, createdAt}`
 
 ### 1.7 统计 `/admin/stats`（权限 `stats:view`）
@@ -239,7 +271,15 @@
  memberCouponId, coupons: [CouponOption], balance}
 ```
 
-价格计算顺序：商品金额 → 会员折扣（discountAmount，秒杀商品不参与）→ 优惠券（按折后适用金额计算）→ 运费（按折后金额判断包邮）→ 应付 = 商品 − 折扣 − 券 + 运费（最低 0.01）。优惠按金额比例分摊到明细的 `payAmount`，尾差计入最后一行。
+价格计算顺序：商品金额 → 会员折扣（discountAmount，秒杀商品不参与）→ 优惠券（按折后适用金额计算）→ 运费（见下）→ 应付 = 商品 − 折扣 − 券 + 运费（最低 0.01）。优惠按金额比例分摊到明细的 `payAmount`，尾差计入最后一行；运费不分摊到明细。
+
+**运费规则**（结算预览与提交共用，金额一律用会员折扣后、用券前的金额，用券不会导致重新收运费）：
+1. 全局满额包邮优先：系统参数 `trade.freight_free_threshold` > 0 且整单折后金额 ≥ 门槛 → 运费 0。
+2. 商品按运费模板分组：商品指定的模板（启用中）→ 默认模板 → 都没有则按系统参数一口价 `trade.freight_amount`（门槛 ≤ 0 时这部分包邮）。
+3. 同一模板的商品**合并**计件 / 计重：按收货省份匹配规则（指定省份优先，其次默认地区）；件数 / 重量 ≤ 首件（首重）收首费，超出部分按续件（续重）**向上取整**每档收一次续费。
+4. 模板的指定条件包邮：收货省份命中且满足满件或满额之一 → 该模板运费 0。
+5. 多个模板（及一口价部分）的运费**相加**。
+6. 收货省份不在某模板的配送范围（无匹配规则且无默认地区规则）时，提交订单报错「收货地址不在「模板名」的配送范围内」；结算预览未选地址时按默认地区规则预估，无默认地区规则的模板按 0 预估。
 
 ### 2.7 售后与评价
 
@@ -264,7 +304,8 @@ PENDING_PAY ──支付──▶ PENDING_DELIVERY ──发货──▶ DELIVER
      │
      └──买家取消 / 后台取消 / 超时关单──▶ CANCELLED（回补库存、退还优惠券、归还秒杀名额）
 ```
-- 待发货订单全部明细退款完成 → 订单 CANCELLED。
+- 待发货订单全部明细退款完成 → 订单 CANCELLED，并与取消订单一致：额外原路退还运费（退款单号 = 售后单号 + `F`）、退还优惠券（已过期置 EXPIRED）、归还秒杀名额。
+- 确认收货后发生退款：按「退款额 / 发放基数」比例回收确认收货时发放的积分与成长值（向下取整），积分不足扣到 0 并写流水；会员等级不降。
 - 支付成功：按实付金额赠送积分与成长值（sys_config 规则），确认收货时发放。
 
 **售后**
@@ -295,6 +336,7 @@ APPLYING ─拒绝─▶ REJECTED        APPLYING / WAIT_RETURN ─买家撤销�
 | 订单 | 订单列表 `/trade/order`、订单详情 `/trade/order/:id`（隐藏） | `trade:order:view` | `trade:order:edit`（改价/备注/取消）、`trade:order:deliver`（发货） |
 | | 售后处理 `/trade/aftersale` | `trade:aftersale:view` | `trade:aftersale:audit` |
 | | 评价管理 `/trade/review` | `trade:review:view` | `trade:review:edit` |
+| | 运费模板 `/trade/freight` | `trade:freight:view` | `trade:freight:edit` |
 | 营销 | 优惠券 `/marketing/coupon` | `marketing:coupon:view` | `marketing:coupon:edit` |
 | | 秒杀活动 `/marketing/seckill` | `marketing:seckill:view` | `marketing:seckill:edit` |
 | | 轮播广告 `/marketing/banner` | `marketing:banner:view` | `marketing:banner:edit` |
@@ -325,9 +367,11 @@ APPLYING ─拒绝─▶ REJECTED        APPLYING / WAIT_RETURN ─买家撤销�
 | 订单日志 | `logs[] = {fromStatus, toStatus, operator, remark, createdAt}`，operator 为 `member:<id>` / `admin:<id>` / `system` |
 | 好评率 | `goodRate` 为 0–100 的整数（4–5 星占比），无评价时为 100 |
 | 秒杀库存 | `stock` 为活动划拨总量，剩余 = `stock − sold`；同一 SKU 启用中的活动时间不可重叠；秒杀订单不可用券、不享会员折扣 |
-| 运费 | 是否包邮按会员折扣后、用券前的金额判断，用券不会导致重新收运费 |
-| 改价 | `adjustAmount` 为订单总调整额（覆盖上次），按比例重新分摊到明细 |
-| 售后与发货 | 有进行中售后的订单不能发货，也暂停自动确认收货 |
+| 运费 | 是否包邮按会员折扣后、用券前的金额判断，用券不会导致重新收运费；运费模板规则见 §2.6 |
+| 改价 | `adjustAmount` 为订单总调整额（覆盖上次），按比例重新分摊到明细（每件先预留 0.01）；改价后应付不得低于「运费 + 0.01 × 商品件数」；与支付并发时以金额条件互斥，支付侧提示「订单金额已变化，请刷新后重试」 |
+| 售后与发货 | 有进行中售后的订单不能发货，也暂停自动确认收货（自动收货任务直接排除这类订单）；发货与售后申请都先锁订单行，串行执行 |
+| 统计口径 | 销售额 = 实付 − 已退款，按支付时间归属日期；支付后整单退款取消的订单不计入销售额与订单数；热销商品金额扣除明细退款，全额退款的明细不计销量 |
+| 秒杀限购 | 个人限购以「该会员该活动未取消订单的件数」兜底，Redis 计数丢失不会放开限购 |
 | 支付 | `pay` 返回 `{paid}`；接入微信/支付宝时新增 `PayChannel` 实现，回调走 `/app/public/pay/notify/{channel}` 并调用 `PayService.onPaid(payNo, channelNo)`（重复通知幂等） |
 | 会员资料 | 额外返回 `hasPassword`；验证码注册的会员首次设置密码时可不传 `oldPassword` |
 | 收藏 / 足迹项 | `{id(商品ID), name, pic, price, originalPrice, sales, onSale, favoritedAt / browsedAt}`；收藏上限 500，足迹保留最近 200 条 |
