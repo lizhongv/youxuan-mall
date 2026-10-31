@@ -7,6 +7,7 @@ import com.platform.cloud.bootstrap.common.security.JwtProperties;
 import com.platform.cloud.bootstrap.common.security.JwtService;
 import com.platform.cloud.bootstrap.common.security.TokenBlacklist;
 import com.platform.cloud.bootstrap.common.web.ResultCode;
+import com.platform.cloud.mall.common.config.MallProperties;
 import com.platform.cloud.mall.common.security.LoginAttemptGuard;
 import com.platform.cloud.mall.common.security.PasswordChangeRequiredInterceptor;
 import com.platform.cloud.mall.common.security.TokenVersionStore;
@@ -60,6 +61,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
     private final JwtProperties jwtProperties;
     private final TokenBlacklist tokenBlacklist;
     private final TokenVersionStore versionStore;
+    private final MallProperties mallProperties;
 
     /** 账号不存在时也做一次 BCrypt 比对，避免通过响应时间差判断用户名是否存在 */
     private volatile String dummyHash;
@@ -244,8 +246,13 @@ public class AdminAuthServiceImpl implements AdminAuthService {
         return h;
     }
 
-    private static boolean mustChangePassword(SysAdmin admin) {
-        return admin.getMustChangePassword() != null && admin.getMustChangePassword() == 1;
+    /**
+     * 是否必须先改密：账号带「必须改密」标记，且当前运行模式开启了强制改密。
+     * demo 模式关闭强制改密，/me 也不能再返回 true，否则前端会把演示账号挡在改密页（与拦截器规则保持一致）。
+     */
+    private boolean mustChangePassword(SysAdmin admin) {
+        return mallProperties.getSecurity().isForceChangeInitialPassword()
+                && admin.getMustChangePassword() != null && admin.getMustChangePassword() == 1;
     }
 
     private static boolean isSuperAdmin(List<SysRole> roles) {

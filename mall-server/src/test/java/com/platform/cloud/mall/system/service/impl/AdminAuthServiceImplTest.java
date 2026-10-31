@@ -94,7 +94,7 @@ class AdminAuthServiceImplTest {
 
         LoginAttemptGuard guard = new LoginAttemptGuard(counter, captchaService, new MallProperties());
         service = new AdminAuthServiceImpl(adminMapper, roleService, menuService, loginLogService,
-                guard, ENCODER, jwtService, props, blacklist, versionStore);
+                guard, ENCODER, jwtService, props, blacklist, versionStore, new MallProperties());
     }
 
     @Test
