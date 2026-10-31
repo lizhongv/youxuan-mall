@@ -101,7 +101,7 @@ platform-cloud/
 
 ## 开发
 
-- 开发规范：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；接口契约：[docs/mall/api.md](docs/mall/api.md)（改接口先改契约）。
+- 演进规划：[docs/重构分析与计划.md](docs/重构分析与计划.md)；开发规范：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；接口契约：[docs/mall/api.md](docs/mall/api.md)（改接口先改契约）。
 - 测试：`./mvnw -pl mall-server -am test`（295 个单元测试）；部署后 `python scripts/smoke_test.py http://<主机>:8090`（11 项全链路检查）。
 - 表结构只通过 Flyway 迁移变更：`mall-server/src/main/resources/db/migration`。
 
@@ -117,4 +117,4 @@ platform-cloud/
 ## 贡献与许可
 
 提交前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
-本项目基于 Apache License 2.0 发布；业务模型参考自 [微同商城 platform-wxshop](../platform)。主要第三方依赖：Spring Boot、MyBatis-Plus、Knife4j、Hutool（Apache 2.0），Vue、Element Plus、Vant、ECharts、wangEditor（MIT / Apache 2.0）。
+本项目基于 Apache License 2.0 发布；业务模型参考自 [微同商城 platform-wxshop](https://gitee.com/fuyang_lipengjun/platform)（本地归档于 `code/_archive/platform`）。主要第三方依赖：Spring Boot、MyBatis-Plus、Knife4j、Hutool（Apache 2.0），Vue、Element Plus、Vant、ECharts、wangEditor（MIT / Apache 2.0）。
