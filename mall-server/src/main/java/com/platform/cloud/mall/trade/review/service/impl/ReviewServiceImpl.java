@@ -1,5 +1,6 @@
 package com.platform.cloud.mall.trade.review.service.impl;
 
+import com.platform.cloud.mall.system.api.FileApi;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -54,6 +55,7 @@ public class ReviewServiceImpl implements ReviewService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final MemberApi memberApi;
+    private final FileApi fileApi;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -97,6 +99,8 @@ public class ReviewServiceImpl implements ReviewService {
         r.setSpecText(nz(item.getSpecText()));
         r.setRating(req.getRating());
         r.setContent(req.getContent() == null ? "" : req.getContent().trim());
+        // 会员提交的图片只允许本站上传地址：防外链钓鱼、追踪像素与伪协议
+        fileApi.requireUploadedImages(req.getImages());
         r.setImages(req.getImages() == null ? List.of() : req.getImages());
         r.setAnonymous(anonymous ? 1 : 0);
         r.setReply("");

@@ -10,6 +10,9 @@ import java.util.Map;
  */
 public interface MemberApi {
 
+    /** 第三方平台：微信公众号（网页授权登录、JSAPI 支付使用同一公众号的 openid） */
+    String PLATFORM_WECHAT_MP = "WECHAT_MP";
+
     /** 会员概要；不存在返回 null */
     MemberBrief getMember(Long memberId);
 
@@ -48,6 +51,9 @@ public interface MemberApi {
 
     /** 记录浏览足迹：同一商品只保留一条，刷新浏览时间 */
     void recordBrowse(Long memberId, Long goodsId);
+
+    /** 会员在第三方平台的 openid（如微信公众号，JSAPI 支付需要）；未绑定返回 null */
+    String getOpenid(Long memberId, String platform);
 
     /** 统计用：时间段内新注册会员数 */
     long countRegistered(LocalDateTime from, LocalDateTime to);

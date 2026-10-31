@@ -34,6 +34,19 @@ class OperLogParamsTest {
     }
 
     @Test
+    void masksSensitiveConfigValuesByKey() {
+        Map<String, Object> req = Map.of("items", List.of(
+                Map.of("configKey", "pay.wechat.private_key", "configValue", "-----BEGIN PRIVATE KEY-----abc"),
+                Map.of("configKey", "pay.wechat.api_v3_key", "configValue", "v3key"),
+                Map.of("configKey", "wechat.mp.app_secret", "configValue", "mp-secret"),
+                Map.of("configKey", "pay.wechat.mch_id", "configValue", "1900000001")));
+
+        String json = OperLogParams.serialize(mapper, new Object[]{req});
+
+        assertThat(json).doesNotContain("BEGIN PRIVATE KEY", "v3key", "mp-secret").contains("1900000001");
+    }
+
+    @Test
     void truncatesTo2000Chars() {
         String json = OperLogParams.serialize(mapper, new Object[]{"x".repeat(5000)});
         assertThat(json).hasSize(OperLogParams.MAX_LENGTH);

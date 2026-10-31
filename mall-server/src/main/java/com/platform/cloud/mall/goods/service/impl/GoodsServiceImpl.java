@@ -1,5 +1,6 @@
 package com.platform.cloud.mall.goods.service.impl;
 
+import com.platform.cloud.mall.common.util.HtmlSanitizer;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -292,7 +293,8 @@ public class GoodsServiceImpl implements GoodsService {
         g.setSubtitle(nullToEmpty(form.getSubtitle()));
         g.setPic(form.getPic());
         g.setAlbum(form.getAlbum() == null ? new ArrayList<>() : new ArrayList<>(form.getAlbum()));
-        g.setDetail(nullToEmpty(form.getDetail()));
+        // 详情富文本由运营录入、在商城端 v-html 渲染，保存前白名单清洗，防止存储型 XSS
+        g.setDetail(HtmlSanitizer.sanitize(nullToEmpty(form.getDetail())));
         g.setSpecItems(specItems);
         g.setPrice(summary.price());
         g.setOriginalPrice(summary.originalPrice());

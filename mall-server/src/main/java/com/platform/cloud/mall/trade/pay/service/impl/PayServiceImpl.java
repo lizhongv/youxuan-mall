@@ -12,6 +12,7 @@ import com.platform.cloud.mall.trade.pay.channel.PayChannel;
 import com.platform.cloud.mall.trade.pay.channel.PayChannel.PayCommand;
 import com.platform.cloud.mall.trade.pay.channel.PayChannel.PayResult;
 import com.platform.cloud.mall.trade.pay.channel.PayChannel.RefundCommand;
+import com.platform.cloud.mall.trade.pay.channel.PayChannel.RefundResult;
 import com.platform.cloud.mall.trade.pay.entity.Payment;
 import com.platform.cloud.mall.trade.pay.mapper.PaymentMapper;
 import com.platform.cloud.mall.trade.pay.service.PayService;
@@ -113,14 +114,14 @@ public class PayServiceImpl implements PayService {
     }
 
     @Override
-    public void refund(Order order, BigDecimal amount, String refundNo) {
+    public RefundResult refund(Order order, BigDecimal amount, String refundNo) {
         // 退款不检查 enabled：渠道下线后已支付订单仍需能原路退回
         PayChannel channel = channels.get(order.getPayType());
         if (channel == null) {
             throw new BusinessException("订单支付方式不支持退款：" + order.getPayType());
         }
-        channel.refund(new RefundCommand(order.getMemberId(), order.getId(), order.getOrderNo(), order.getPayNo(),
-                refundNo, amount));
+        return channel.refund(new RefundCommand(order.getMemberId(), order.getId(), order.getOrderNo(),
+                order.getPayNo(), refundNo, amount));
     }
 
     @Override

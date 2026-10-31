@@ -49,6 +49,15 @@ public class SysConfigServiceImpl implements SysConfigService, ConfigApi {
     private static final Set<String> MONEY_KEYS = Set.of(
             ConfigKeys.FREIGHT_AMOUNT, ConfigKeys.FREIGHT_FREE_THRESHOLD, ConfigKeys.REGISTER_GIFT_BALANCE);
 
+    /** 敏感参数在列表中的掩码；保存时提交的仍是掩码说明管理员没改，保持原值 */
+    public static final String MASK = "******";
+
+    /** 取值只能是 true / false 的开关键 */
+    private static final Set<String> BOOLEAN_KEYS = Set.of(
+            ConfigKeys.WECHAT_PAY_ENABLED, ConfigKeys.WECHAT_PAY_H5_ENABLED, ConfigKeys.ALIPAY_ENABLED);
+    /** 支付渠道要求回调地址为 HTTPS，填 http 会导致渠道拒绝下单，提前在保存时拦下 */
+    private static final Set<String> HTTPS_URL_KEYS = Set.of(ConfigKeys.PAY_NOTIFY_BASE_URL, ConfigKeys.ALIPAY_GATEWAY);
+
     private final SysConfigMapper configMapper;
 
     private volatile Map<String, String> cache;
@@ -71,6 +80,10 @@ public class SysConfigServiceImpl implements SysConfigService, ConfigApi {
                 throw new BusinessException("参数不存在：" + item.getConfigKey());
             }
             String value = item.getConfigValue().trim();
+            if (isSensitive(cfg) && MASK.equals(value)) {
+                // 前端回传的是列表里的掩码，说明没有修改，不能把真实密钥覆盖成 ******
+                continue;
+            }
             validate(cfg, value);
             configMapper.update(null, new LambdaUpdateWrapper<SysConfig>()
                     .set(SysConfig::getConfigValue, value)
@@ -162,6 +175,14 @@ public class SysConfigServiceImpl implements SysConfigService, ConfigApi {
             } catch (NumberFormatException e) {
                 throw new BusinessException(label + "必须是整数");
             }
+        } else if (BOOLEAN_KEYS.contains(key)) {
+            if (!"true".equals(value) && !"false".equals(value)) {
+                throw new BusinessException(label + "只能是 true 或 false");
+            }
+        } else if (HTTPS_URL_KEYS.contains(key)) {
+            if (!value.isEmpty() && !value.startsWith("https://")) {
+                throw new BusinessException(label + "必须以 https:// 开头");
+            }
         } else if (MONEY_KEYS.contains(key)) {
             try {
                 BigDecimal d = new BigDecimal(value);
@@ -178,9 +199,16 @@ public class SysConfigServiceImpl implements SysConfigService, ConfigApi {
         ConfigVO vo = new ConfigVO();
         vo.setId(c.getId());
         vo.setConfigKey(c.getConfigKey());
-        vo.setConfigValue(c.getConfigValue());
+        boolean sensitive = isSensitive(c);
+        String value = c.getConfigValue() == null ? "" : c.getConfigValue();
+        vo.setConfigValue(sensitive && !value.isEmpty() ? MASK : value);
         vo.setName(c.getName());
         vo.setRemark(c.getRemark());
+        vo.setSensitive(sensitive);
         return vo;
+    }
+
+    private static boolean isSensitive(SysConfig c) {
+        return c.getSensitive() != null && c.getSensitive() == 1;
     }
 }

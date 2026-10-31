@@ -32,4 +32,17 @@ public interface MemberAuthService {
      * 供会员领域内部及第三方登录（如微信网页授权）调用；调用方负责确认会员存在且未冻结。
      */
     MemberTokenVO issueTokens(Long memberId);
+
+    /**
+     * 已由可信第三方确认身份的会员直接登录（如微信 openid 已绑定）：校验冻结、记登录日志、签发令牌。
+     * 令牌与密码 / 验证码登录走同一个签发方法，令牌声明保持一致。
+     */
+    MemberTokenVO loginTrusted(Long memberId, String message);
+
+    /**
+     * 校验登录验证码并按手机号取会员，未注册则自动注册（第三方账号绑定手机号使用）。
+     *
+     * @return 会员 ID；账号冻结时抛业务异常
+     */
+    Long verifySmsAndGetOrRegister(String mobile, String code);
 }

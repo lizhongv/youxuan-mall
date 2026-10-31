@@ -1,6 +1,7 @@
 package com.platform.cloud.mall.trade.pay.service;
 
 import com.platform.cloud.mall.trade.order.entity.Order;
+import com.platform.cloud.mall.trade.pay.channel.PayChannel.RefundResult;
 
 import java.math.BigDecimal;
 
@@ -15,8 +16,8 @@ public interface PayService {
      */
     void onPaid(String payNo, String channelNo);
 
-    /** 按订单原支付渠道退款 */
-    void refund(Order order, BigDecimal amount, String refundNo);
+    /** 按订单原支付渠道退款；异步渠道可能返回 PROCESSING，结果由退款回调落定 */
+    RefundResult refund(Order order, BigDecimal amount, String refundNo);
 
     /** 整单退完后把支付流水标记为已退款，便于对账 */
     void markRefunded(Long orderId);

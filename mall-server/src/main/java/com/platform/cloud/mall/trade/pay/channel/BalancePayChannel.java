@@ -33,8 +33,9 @@ public class BalancePayChannel implements PayChannel {
     }
 
     @Override
-    public void refund(RefundCommand cmd) {
+    public RefundResult refund(RefundCommand cmd) {
         memberApi.changeBalance(cmd.memberId(), cmd.amount(), BIZ_REFUND, cmd.orderNo(),
                 "订单退款 " + cmd.refundNo());
+        return RefundResult.success();
     }
 }

@@ -1,5 +1,6 @@
 package com.platform.cloud.mall.trade.aftersale.service.impl;
 
+import com.platform.cloud.mall.system.api.FileApi;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -32,8 +33,10 @@ import com.platform.cloud.mall.trade.order.mapper.OrderMapper;
 import com.platform.cloud.mall.trade.order.service.OrderAssembler;
 import com.platform.cloud.mall.trade.order.service.OrderStateMachine;
 import com.platform.cloud.mall.trade.order.service.impl.OrderServiceImpl;
+import com.platform.cloud.mall.trade.pay.channel.PayChannel.RefundResult;
 import com.platform.cloud.mall.trade.pay.service.PayService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,6 +65,7 @@ import java.util.stream.Collectors;
  *   <li>售后申请与发货都先 SELECT ... FOR UPDATE 锁订单行，二者串行。</li>
  * </ul>
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AftersaleServiceImpl implements AftersaleService {
@@ -71,6 +75,8 @@ public class AftersaleServiceImpl implements AftersaleService {
     static final String BIZ_REWARD_REVOKE = "ORDER_REWARD_REVOKE";
     /** 运费退款单号后缀：渠道按退款单号幂等，运费与商品退款需不同单号 */
     static final String FREIGHT_REFUND_SUFFIX = "F";
+    /** 与 trd_aftersale.audit_remark 列宽一致 */
+    private static final int REMARK_MAX = 255;
 
     private final AftersaleMapper aftersaleMapper;
     private final OrderMapper orderMapper;
@@ -79,6 +85,7 @@ public class AftersaleServiceImpl implements AftersaleService {
     private final PayService payService;
     private final GoodsApi goodsApi;
     private final MemberApi memberApi;
+    private final FileApi fileApi;
     private final TradeSettings settings;
     private final CouponApi couponApi;
     private final SeckillApi seckillApi;
@@ -151,6 +158,8 @@ public class AftersaleServiceImpl implements AftersaleService {
         a.setStatus(AftersaleStatus.APPLYING.name());
         a.setReason(req.getReason().trim());
         a.setDescription(req.getDescription() == null ? "" : req.getDescription().trim());
+        // 会员提交的图片只允许本站上传地址：防外链钓鱼、追踪像素与伪协议
+        fileApi.requireUploadedImages(req.getImages());
         a.setImages(req.getImages() == null ? List.of() : req.getImages());
         a.setAmount(amount);
         a.setQuantity(item.getQuantity());
@@ -231,12 +240,11 @@ public class AftersaleServiceImpl implements AftersaleService {
         }
         LocalDateTime now = LocalDateTime.now();
         String r = remark == null ? "" : remark.trim();
-        Consumer<LambdaUpdateWrapper<Aftersale>> audit = w -> w.set(Aftersale::getAuditRemark, r)
-                .set(Aftersale::getAuditTime, now);
         if (AftersaleType.REFUND.name().equals(a.getType())) {
-            refund(a, Operators.admin(adminId), audit);
+            refund(a, Operators.admin(adminId), r);
         } else {
-            transit(a, AftersaleStatus.WAIT_RETURN, audit);
+            transit(a, AftersaleStatus.WAIT_RETURN, w -> w.set(Aftersale::getAuditRemark, r)
+                    .set(Aftersale::getAuditTime, now));
         }
     }
 
@@ -264,14 +272,63 @@ public class AftersaleServiceImpl implements AftersaleService {
         refund(a, Operators.admin(adminId), null);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void onChannelRefundSuccess(String aftersaleNo) {
+        Aftersale a = findByNo(aftersaleNo);
+        if (a == null) {
+            log.warn("退款回调找不到售后单 aftersaleNo={}", aftersaleNo);
+            return;
+        }
+        if (!AftersaleStatus.REFUNDING.name().equals(a.getStatus())) {
+            // 已完成（重复通知）或不是渠道退款中的单：幂等返回
+            return;
+        }
+        Order order = orderMapper.selectById(a.getOrderId());
+        OrderItem item = orderItemMapper.selectById(a.getOrderItemId());
+        if (order == null || item == null) {
+            throw new BusinessException("订单不存在");
+        }
+        completeRefund(a, order, item, Operators.SYSTEM, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void onChannelRefundFailed(String aftersaleNo, String reason) {
+        Aftersale a = findByNo(aftersaleNo);
+        if (a == null || !AftersaleStatus.REFUNDING.name().equals(a.getStatus())) {
+            return;
+        }
+        String tag = "【退款失败：" + reason + "】";
+        if (a.getAuditRemark() != null && a.getAuditRemark().contains(tag)) {
+            // 补偿任务会反复查到同一失败结果，备注只写一次
+            return;
+        }
+        log.error("售后渠道退款失败，需人工处理 aftersaleNo={} reason={}", aftersaleNo, reason);
+        String note = appendRemark(a.getAuditRemark(), tag);
+        aftersaleMapper.update(null, Wrappers.<Aftersale>lambdaUpdate()
+                .eq(Aftersale::getId, a.getId())
+                .eq(Aftersale::getStatus, AftersaleStatus.REFUNDING.name())
+                .set(Aftersale::getAuditRemark, note));
+    }
+
     // ------------------------------------------------------------------ 内部
 
     /**
-     * 执行退款：复核额度 → 原路退款 → 售后单 REFUNDED → 明细 REFUNDED；
-     * 未发货订单回补库存，且全部明细退完时订单取消（见 {@link #cancelAfterFullRefund}）；
-     * 已完成订单按比例回收确认收货时发放的积分与成长值。
+     * 执行退款：复核额度 → 售后单 REFUNDING → 按订单支付渠道原路退款 → 按渠道结果：
+     * <ul>
+     *   <li>SUCCESS（余额、支付宝同步退款、微信即时成功）：同一事务内完成 {@link #completeRefund}；</li>
+     *   <li>OFFLINE（模拟支付）：同样完成，并在审核备注中注明「需线下处理」；</li>
+     *   <li>PROCESSING（微信退款常见）/ FAILED：保持 REFUNDING，等退款回调或补偿查询。</li>
+     * </ul>
+     * 完成退款时：明细 REFUNDED；未发货订单回补库存，且全部明细退完时订单取消（见 {@link #cancelAfterFullRefund}）；
+     * 已完成订单按比例回收确认收货时发放的积分与成长值（见 {@link #reclaimReward}）。
+     * 渠道请求本身失败（网络、余额不足等）抛异常，整个事务回滚回原状态，管理员可重试；
+     * 售后单号即渠道退款单号，重试不会重复退款。
+     *
+     * @param auditRemark 审核备注；为 null 表示不是审核动作（确认收货退款），不改审核字段
      */
-    void refund(Aftersale a, String operator, Consumer<LambdaUpdateWrapper<Aftersale>> extra) {
+    void refund(Aftersale a, String operator, String auditRemark) {
         Order order = orderMapper.selectById(a.getOrderId());
         OrderItem item = orderItemMapper.selectById(a.getOrderItemId());
         if (order == null || item == null) {
@@ -282,13 +339,37 @@ public class AftersaleServiceImpl implements AftersaleService {
         }
         LocalDateTime now = LocalDateTime.now();
         // 先改状态再调渠道：条件更新失败（重复审核）时不会多退一次款
+        transit(a, AftersaleStatus.REFUNDING, auditRemark == null ? null
+                : w -> w.set(Aftersale::getAuditRemark, auditRemark).set(Aftersale::getAuditTime, now));
+        if (auditRemark != null) {
+            a.setAuditRemark(auditRemark);
+        }
+        RefundResult result = payService.refund(order, a.getAmount(), a.getAftersaleNo());
+        switch (result.status()) {
+            case SUCCESS -> completeRefund(a, order, item, operator, null);
+            case OFFLINE -> completeRefund(a, order, item, operator,
+                    appendRemark(a.getAuditRemark(), "【需线下处理】" + result.message()));
+            case FAILED -> onChannelRefundFailed(a.getAftersaleNo(), result.message());
+            case PROCESSING -> {
+                // 等待渠道退款回调；补偿任务也会定期查询
+            }
+        }
+    }
+
+    /**
+     * 退款完成：售后单 REFUNDED → 明细 REFUNDED；未发货订单回补库存，且全部明细退完时订单取消
+     * （优惠券不退，已按实付分摊退给买家）。
+     *
+     * @param remark 非空时覆盖审核备注（线下处理说明）
+     */
+    void completeRefund(Aftersale a, Order order, OrderItem item, String operator, String remark) {
+        LocalDateTime now = LocalDateTime.now();
         transit(a, AftersaleStatus.REFUNDED, w -> {
             w.set(Aftersale::getRefundTime, now);
-            if (extra != null) {
-                extra.accept(w);
+            if (remark != null) {
+                w.set(Aftersale::getAuditRemark, remark);
             }
         });
-        payService.refund(order, a.getAmount(), a.getAftersaleNo());
         orderItemMapper.update(null, Wrappers.<OrderItem>lambdaUpdate()
                 .eq(OrderItem::getId, item.getId())
                 .set(OrderItem::getAftersaleStatus, OrderItem.AS_REFUNDED));
@@ -368,6 +449,17 @@ public class AftersaleServiceImpl implements AftersaleService {
         }
         return BigDecimal.valueOf(granted).multiply(part)
                 .divide(base, 0, java.math.RoundingMode.DOWN).intValueExact();
+    }
+
+    /** audit_remark 列 255 字符 */
+    static String appendRemark(String origin, String note) {
+        String s = origin == null || origin.isBlank() ? note : origin + " " + note;
+        return s.length() <= REMARK_MAX ? s : s.substring(0, REMARK_MAX);
+    }
+
+    private Aftersale findByNo(String aftersaleNo) {
+        return aftersaleMapper.selectOne(Wrappers.<Aftersale>lambdaQuery()
+                .eq(Aftersale::getAftersaleNo, aftersaleNo));
     }
 
     /** 售后状态的条件更新：从读取时的状态改到目标状态，影响 0 行说明已被并发处理 */

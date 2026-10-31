@@ -1,5 +1,6 @@
 package com.platform.cloud.mall.trade.review.service.impl;
 
+import com.platform.cloud.mall.system.api.FileApi;
 import com.platform.cloud.mall.member.api.MemberApi;
 import com.platform.cloud.mall.member.api.MemberApi.MemberBrief;
 import com.platform.cloud.mall.trade.MpTestSupport;
@@ -52,6 +53,8 @@ class ReviewServiceImplTest {
     OrderItemMapper orderItemMapper;
     @Mock
     MemberApi memberApi;
+    @Mock
+    FileApi fileApi;
     @InjectMocks
     ReviewServiceImpl service;
 
