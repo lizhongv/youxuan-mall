@@ -26,6 +26,16 @@ public final class ConfigKeys {
     /** 新会员注册赠送余额（元，演示/拉新用） */
     public static final String REGISTER_GIFT_BALANCE = "member.register_gift_balance";
 
+    // ------------------------------------------------------------------ 退货地址（V8__return_address_pay_password.sql）
+    // 退货退款审核通过后展示给买家寄回商品；三项都为空视为未配置，此时后台不能同意退货申请
+
+    /** 退货收件人 */
+    public static final String RETURN_RECEIVER_NAME = "trade.return_receiver_name";
+    /** 退货联系电话 */
+    public static final String RETURN_RECEIVER_MOBILE = "trade.return_receiver_mobile";
+    /** 退货地址（省市区 + 详细地址，一段文本，方便运营直接粘贴） */
+    public static final String RETURN_ADDRESS = "trade.return_address";
+
     // ------------------------------------------------------------------ 支付与微信（V6__pay.sql）
     // 敏感键（私钥、密钥）在 sys_config.sensitive = 1，后台列表只返回掩码，见 docs/mall/payment.md
 

@@ -13,7 +13,7 @@ import java.util.List;
 public class OrderConfirmVO {
 
     private List<Item> items;
-    @Schema(description = "收货地址，未传 addressId 时为 null")
+    @Schema(description = "收货地址：传了 addressId 用该地址；未传时回退到默认地址（无默认取最近修改的），会员没有地址时为 null")
     private AddressVO address;
     private BigDecimal goodsAmount;
     private BigDecimal freightAmount;

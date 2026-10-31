@@ -18,6 +18,7 @@ import com.platform.cloud.mall.member.mapper.MbrLevelMapper;
 import com.platform.cloud.mall.member.mapper.MbrMemberMapper;
 import com.platform.cloud.mall.member.mapper.MbrSocialMapper;
 import com.platform.cloud.mall.member.service.MemberAccountService;
+import com.platform.cloud.mall.member.service.PayPasswordService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +56,7 @@ public class MemberApiImpl implements MemberApi {
     private final MbrBrowseHistoryMapper historyMapper;
     private final MemberAccountService accountService;
     private final MbrSocialMapper socialMapper;
+    private final PayPasswordService payPasswordService;
 
     @Override
     public MemberBrief getMember(Long memberId) {
@@ -93,6 +95,30 @@ public class MemberApiImpl implements MemberApi {
         if (a == null) {
             throw new BusinessException("收货地址不存在");
         }
+        return toSnapshot(a);
+    }
+
+    @Override
+    public AddressRef getPreferredAddress(Long memberId) {
+        if (memberId == null) {
+            return null;
+        }
+        // 与地址列表的排序一致（默认在前、最近修改在前），买家在结算页看到的就是地址列表第一个
+        MbrAddress a = addressMapper.selectOne(new LambdaQueryWrapper<MbrAddress>()
+                .eq(MbrAddress::getMemberId, memberId)
+                .orderByDesc(MbrAddress::getIsDefault)
+                .orderByDesc(MbrAddress::getUpdatedAt)
+                .orderByDesc(MbrAddress::getId)
+                .last("LIMIT 1"));
+        return a == null ? null : new AddressRef(a.getId(), toSnapshot(a));
+    }
+
+    @Override
+    public void verifyPayPassword(Long memberId, String payPassword) {
+        payPasswordService.verify(memberId, payPassword);
+    }
+
+    private static AddressSnapshot toSnapshot(MbrAddress a) {
         return new AddressSnapshot(a.getName(), a.getMobile(), a.getProvince(), a.getCity(), a.getDistrict(),
                 a.getDetail());
     }

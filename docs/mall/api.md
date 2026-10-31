@@ -7,7 +7,7 @@
 
 | 项 | 约定 |
 |---|---|
-| 响应 | `{ code, msg, data, ts, traceId }`，`code = 0` 成功；`40100` 未登录 / 令牌过期 / 令牌已失效；`40300` 无权限；`40301` 请先修改初始密码（见 1.1）；`40002` 需要图形验证码（`data.needCaptcha = true`）；`42900` 请求过于频繁；`50300` 服务暂不可用（Redis / 数据库故障）；`60000` 业务提示（直接展示 msg） |
+| 响应 | `{ code, msg, data, ts, traceId }`，`code = 0` 成功；`40100` 未登录 / 令牌过期 / 令牌已失效；`40300` 无权限；`40301` 请先修改初始密码（见 1.1）；`40002` 需要图形验证码（`data.needCaptcha = true`）；`42900` 请求过于频繁；`50300` 服务暂不可用（Redis / 数据库故障）；`60000` 业务提示（直接展示 msg）；`60010` / `60011` / `60012` 余额支付密码（见 §2.6「余额支付密码」） |
 | 分页入参 | query：`page`（从 1 开始）、`size`（默认 20，最大 200）、`keyword` 及各接口筛选字段 |
 | 分页出参 | `{ records: [], total, page, size, pages }` |
 | ID | 所有 ID 为**字符串**（后端 Long 序列化为字符串） |
@@ -150,7 +150,7 @@
 | PUT | `/admin/trade/order/{id}/cancel` | `{reason}`，仅待支付 |
 | GET | `/admin/trade/aftersale/page` | 筛选 `aftersaleNo, orderNo, status, type` |
 | GET | `/admin/trade/aftersale/{id}` | 售后 + 订单明细快照 |
-| PUT | `/admin/trade/aftersale/{id}/approve` | `{remark}`：仅退款 → 原路退款（REFUNDING → REFUNDED，见 §3）；退货退款 → WAIT_RETURN |
+| PUT | `/admin/trade/aftersale/{id}/approve` | `{remark}`：仅退款 → 原路退款（REFUNDING → REFUNDED，见 §3）；退货退款 → WAIT_RETURN（退货地址三项都未配置时返回业务提示「请先在系统参数中设置退货地址」） |
 | PUT | `/admin/trade/aftersale/{id}/reject` | `{remark}` |
 | PUT | `/admin/trade/aftersale/{id}/receive` | 确认收到退货并退款（RETURNING → REFUNDING → REFUNDED） |
 | GET | `/admin/trade/payment/page` | 支付流水，筛选 `payNo, orderNo, channel, status, startTime, endTime`（权限 `trade:payment:view`） |
@@ -173,7 +173,7 @@
  deliveryNo, deliveryTime, receiveTime, cancelTime, cancelReason, reviewed, createdAt,
  items: [{id, goodsId, skuId, goodsName, pic, specText, price, quantity, totalAmount, payAmount, aftersaleStatus, reviewed}]}
 ```
-售后 VO：`{id, aftersaleNo, orderId, orderNo, orderItemId, memberId, memberNickname, type, status, statusText, reason, description, images[], amount, quantity, auditRemark, auditTime, returnCompany, returnNo, refundTime, createdAt, item: OrderItem}`
+售后 VO：`{id, aftersaleNo, orderId, orderNo, orderItemId, memberId, memberNickname, type, status, statusText, reason, description, images[], amount, quantity, auditRemark, auditTime, returnCompany, returnNo, refundTime, createdAt, item: OrderItem, returnAddress: {name, mobile, address} | null}`（`returnAddress` 规则见 §2.7）
 运费模板 `FreightTemplate`（入参同结构，不含 id / createdAt）：
 ```json
 {
@@ -266,9 +266,11 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/app/member/profile` | `{id, mobile(脱敏), nickname, avatar, gender, birthday, levelName, discount, points, growth, balance, couponCount, favoriteCount, orderCount: {PENDING_PAY, PENDING_DELIVERY, DELIVERED, TO_REVIEW, AFTERSALE}}` |
+| GET | `/app/member/profile` | `{id, mobile(脱敏), nickname, avatar, gender, birthday, levelName, discount, points, growth, balance, couponCount, favoriteCount, orderCount: {PENDING_PAY, PENDING_DELIVERY, DELIVERED, TO_REVIEW, AFTERSALE}, hasPassword, hasPayPassword}`；`hasPayPassword` 是否已设置余额支付密码 |
 | PUT | `/app/member/profile` | `{nickname, avatar, gender, birthday}` |
 | PUT | `/app/member/password` | `{oldPassword, newPassword}` → `{accessToken, refreshToken, expiresIn}`：其他设备上的登录全部失效，前端用返回的新令牌替换本地令牌 |
+| POST | `/app/member/pay-password/sms-code` | `{captchaId, captchaCode}` → `{devCode?}`：给**当前会员自己的手机号**发送设置支付密码的验证码（场景 `PAY_PASSWORD`）；图形验证码与频控同 `/app/auth/sms-code`。公开的 `/app/auth/sms-code` **不接受** `PAY_PASSWORD` 场景，前端请用本接口 |
+| PUT | `/app/member/pay-password` | `{code, payPassword}`：设置或修改余额支付密码（首次设置与修改相同，均凭短信验证码，不需要原支付密码）。`payPassword` 为 6 位数字，拒绝 6 位相同数字和逐位连续数字（123456、654321、012345 等）；成功后清零错误计数（解除锁定） |
 | GET/POST/PUT/DELETE | `/app/member/address`、`/app/member/address/{id}` | 列表 / 新增 / 修改 / 删除；`PUT /app/member/address/{id}/default`；`GET /app/member/address/default` |
 | GET | `/app/member/favorite/page` | 收藏商品分页（商品列表项） |
 | POST | `/app/member/favorite/{goodsId}` / DELETE 同路径 | 收藏 / 取消 |
@@ -301,13 +303,12 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/app/order/confirm` | 结算预览，入参 `OrderSubmit`，出参见下 |
-| POST | `/app/order` | 提交订单（需幂等头），入参 `OrderSubmit`，出参 `{orderId, orderNo, payAmount, payExpireAt}` |
+| POST | `/app/order/confirm` | 结算预览，入参 `OrderSubmit`，出参见下；`addressId` 可不传：回退到会员默认地址，无默认地址取最近修改的一个，再没有则 `address=null` 并按默认地区估算运费 |
+| POST | `/app/order` | 提交订单（需幂等头），入参 `OrderSubmit`（**必须**传 `addressId`，前端用 confirm 返回的 `address.id`），出参 `{orderId, orderNo, payAmount, payExpireAt}` |
 | GET | `/app/order/page?status=` | 我的订单；status 额外支持 `TO_REVIEW`（已完成未评价） |
 | GET | `/app/order/{id}` | 订单详情（同管理端订单 VO，另含 `logs[]`） |
 | GET | `/app/order/{id}/logistics` | 物流轨迹（只能查自己的订单），出参同管理端「物流 VO」 |
-| POST | `/app/order/{id}/pay` | `{payType: BALANCE\|MOCK}`（需幂等头），返回 `{paid: true}` |
-| POST | `/app/order/{id}/pay` | `{payType: BALANCE\|WECHAT_JSAPI\|WECHAT_H5\|ALIPAY_WAP\|MOCK}`（需幂等头），出参见下「支付」 |
+| POST | `/app/order/{id}/pay` | `{payType: BALANCE\|WECHAT_JSAPI\|WECHAT_H5\|ALIPAY_WAP\|MOCK, payPassword?}`（需幂等头），`payType=BALANCE` 时 `payPassword` 必填；出参见下「支付」 |
 | GET | `/app/order/{id}/pay-status` | 支付结果轮询 `{orderId, status, statusText, paid, payType, payTime}`；本地未支付时服务端主动向渠道查单（同一支付单 3 秒内只查一次） |
 | PUT | `/app/order/{id}/cancel` | `{reason}`，仅待支付 |
 | PUT | `/app/order/{id}/receive` | 确认收货，仅待收货 |
@@ -328,7 +329,7 @@
 `confirm` 出参：
 ```
 {items: [{goodsId, skuId, goodsName, pic, specText, price, quantity, totalAmount}],
- address: Address | null, goodsAmount, freightAmount, couponAmount, discountAmount, payAmount,
+ address: {id, name, mobile, province, city, district, detail} | null, goodsAmount, freightAmount, couponAmount, discountAmount, payAmount,
  memberCouponId, coupons: [CouponOption], balance}
 ```
 
@@ -364,6 +365,17 @@
 - 同一订单重复发起：同方式、同金额、4 分钟内发起过的预支付单直接复用（返回同一 `payNo` 与参数）；其余待支付单先向渠道查单（已付款则直接落账并提示「订单已支付」），再关闭渠道订单。
 - 渠道订单失效时间 = 订单支付截止时间 `payExpireAt`。
 
+**余额支付密码**（`payType=BALANCE`，在扣余额之前校验；其他支付方式忽略 `payPassword`）：
+
+| code | msg | 前端处理 |
+|---|---|---|
+| `60010` | 请先设置支付密码 | 引导到设置支付密码页（`PUT /app/member/pay-password`） |
+| `60011` | 支付密码错误，还可尝试 N 次 | 展示 msg，清空输入重新输入 |
+| `60012` | 支付密码错误次数过多，请 30 分钟后再试 | 展示 msg；可引导「忘记支付密码」凭短信重设（重设成功即解锁） |
+
+- 连续错误 5 次锁定 30 分钟（第 5 次错误直接返回 `60012`）；锁定期间不校验密码直接返回 `60012`；校验正确或重设支付密码后清零。计数在 Redis（`mall:pay-pwd-fail:{memberId}`），从最后一次错误起 30 分钟过期。
+- 校验失败时幂等 key 会被释放，可用同一个 `X-Idempotent-Key` 重试。
+
 **支付回调**（公开，渠道调用；地址 = `pay.notify_base_url` + 路径，必须 HTTPS）：
 
 | 路径 | 说明 | 响应 |
@@ -382,8 +394,10 @@
 | GET | `/app/aftersale/page` | 我的售后 |
 | GET | `/app/aftersale/{id}` | 详情 |
 | PUT | `/app/aftersale/{id}/cancel` | 撤销（仅 APPLYING / WAIT_RETURN） |
-| PUT | `/app/aftersale/{id}/return` | `{returnCompany, returnNo}` 填写退货物流（WAIT_RETURN → RETURNING） |
+| PUT | `/app/aftersale/{id}/return` | `{returnCompany, returnNo}` 填写退货物流（WAIT_RETURN → RETURNING）；寄往售后 VO 的 `returnAddress` |
 | POST | `/app/review` | `{orderItemId, rating, content, images[], anonymous}`，仅已完成订单的明细，每条只能评一次；全部明细已评则订单 reviewed=1 |
+
+售后 VO（商城端与管理端相同，见 §1.6）新增 `returnAddress: {name, mobile, address} | null`：仅 `type=RETURN_REFUND` 且 `status` 为 `WAIT_RETURN / RETURNING / REFUNDING / REFUNDED` 时返回，取自系统参数 `trade.return_receiver_name` / `trade.return_receiver_mobile` / `trade.return_address`（当前值，不做快照）；三项都为空时为 `null`。
 
 评价、售后的 `images[]` 只接受本站上传接口返回的路径（`/uploads/...`），外链会被拒绝。
 | GET | `/app/review/mine` | 我的评价分页 |
@@ -489,7 +503,10 @@ WAITING / CLOSED ─到账时订单已关闭、已被其他支付单付清或金
 | 售后与发货 | 有进行中售后的订单不能发货，也暂停自动确认收货 |
 | 支付 | 渠道实现 `PayChannel`（同步）/ `AsyncPayChannel`（下单、查单、关单、查退款）；回调、轮询查单、补偿任务、后台查单统一走 `PaySettlementService.settle`：金额以分比较、流水终态幂等、订单待付款时调用 `PayService.onPaid` 落账，否则自动原路退款并标记 `REFUNDED_AFTER_CLOSE`（错误日志 + 订单日志）。支付配置存 `sys_config`（`pay.*`、`wechat.*`），后台修改后不重启生效（SDK 客户端按配置快照重建），详见 [payment.md](payment.md) |
 | 微信登录 | 公众号网页授权 `snsapi_base`；openid 存 `mbr_social(platform=WECHAT_MP)`，唯一索引 `platform+openid`、`member_id+platform`；令牌与密码登录同一签发方法 |
-| 会员资料 | 额外返回 `hasPassword`；验证码注册的会员首次设置密码时可不传 `oldPassword` |
+| 会员资料 | 额外返回 `hasPassword`、`hasPayPassword`；验证码注册的会员首次设置密码时可不传 `oldPassword` |
+| 退货地址 | 系统参数 `trade.return_receiver_name`（退货收件人）、`trade.return_receiver_mobile`（退货联系电话）、`trade.return_address`（退货地址），默认空串（V8 迁移）；后台在「系统参数」中维护，售后 VO 按 §2.7 规则返回 |
+| 支付密码 | `mbr_member.pay_password`（BCrypt，空串 = 未设置）；验证码场景 `PAY_PASSWORD` 只能经 `POST /app/member/pay-password/sms-code` 发给本人；错误码 `60010` 未设置 / `60011` 错误（含剩余次数）/ `60012` 锁定 30 分钟；操作日志对 `payPassword` 字段脱敏，服务日志不记录密码 |
+| 结算默认地址 | `confirm` 未传 `addressId` 时按「默认地址 → 最近修改的地址 → null」回退并在 `address.id` 返回；`POST /app/order` 仍必须传 `addressId` |
 | 收藏 / 足迹项 | `{id(商品ID), name, pic, price, originalPrice, sales, onSale, favoritedAt / browsedAt}`；收藏上限 500，足迹保留最近 200 条 |
 | 令牌时效 | access 2 小时、refresh 7 天且每次刷新换新（旧 refresh 立即作废，重放返回 40100） |
 | 令牌失效 | 令牌带版本号 `tv`：会员改密 / 重置密码 / 被冻结，管理员改密 / 被重置密码 / 被停用 / 角色调整后，该用户所有已签发令牌**立即**失效（40100）；仅修改角色的菜单权限仍在下次刷新令牌时生效 |

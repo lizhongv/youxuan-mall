@@ -8,12 +8,16 @@ import com.platform.cloud.mall.member.dto.AccountLogQuery;
 import com.platform.cloud.mall.member.dto.MemberLogoutRequest;
 import com.platform.cloud.mall.member.dto.MemberPasswordRequest;
 import com.platform.cloud.mall.member.dto.MemberProfileRequest;
+import com.platform.cloud.mall.member.dto.PayPasswordRequest;
+import com.platform.cloud.mall.member.dto.PayPasswordSmsRequest;
 import com.platform.cloud.mall.member.service.MemberAccountService;
 import com.platform.cloud.mall.member.service.MemberAuthService;
 import com.platform.cloud.mall.member.service.MemberProfileService;
+import com.platform.cloud.mall.member.service.PayPasswordService;
 import com.platform.cloud.mall.member.vo.AccountLogVO;
 import com.platform.cloud.mall.member.vo.MemberProfileVO;
 import com.platform.cloud.mall.member.vo.MemberTokenVO;
+import com.platform.cloud.mall.member.vo.SmsCodeVO;
 import com.platform.cloud.mall.system.service.FileService;
 import com.platform.cloud.mall.system.vo.FileVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -49,6 +53,7 @@ public class MemberCenterController {
     private final MemberProfileService profileService;
     private final MemberAccountService accountService;
     private final MemberAuthService authService;
+    private final PayPasswordService payPasswordService;
     private final FileService fileService;
     private final JwtProperties jwtProperties;
 
@@ -69,6 +74,20 @@ public class MemberCenterController {
     @PutMapping("/password")
     public R<MemberTokenVO> changePassword(@Valid @RequestBody MemberPasswordRequest req) {
         return R.ok(profileService.changePassword(SecurityUtils.currentUserId(), req));
+    }
+
+    @Operation(summary = "发送设置支付密码的短信验证码（发到当前会员手机号，需图形验证码）")
+    @PostMapping("/pay-password/sms-code")
+    public R<SmsCodeVO> payPasswordSmsCode(@Valid @RequestBody PayPasswordSmsRequest req) {
+        return R.ok(payPasswordService.sendSmsCode(SecurityUtils.currentUserId(), req.getCaptchaId(),
+                req.getCaptchaCode()));
+    }
+
+    @Operation(summary = "设置 / 修改余额支付密码（凭短信验证码）")
+    @PutMapping("/pay-password")
+    public R<Void> setPayPassword(@Valid @RequestBody PayPasswordRequest req) {
+        payPasswordService.setPayPassword(SecurityUtils.currentUserId(), req);
+        return R.ok();
     }
 
     @Operation(summary = "我的账户流水")

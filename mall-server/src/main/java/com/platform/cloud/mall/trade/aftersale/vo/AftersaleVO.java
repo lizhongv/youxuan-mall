@@ -1,6 +1,7 @@
 package com.platform.cloud.mall.trade.aftersale.vo;
 
 import com.platform.cloud.mall.trade.order.vo.OrderItemVO;
+import com.platform.cloud.mall.trade.common.TradeSettings.ReturnAddress;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -33,4 +34,9 @@ public class AftersaleVO {
     private LocalDateTime refundTime;
     private LocalDateTime createdAt;
     private OrderItemVO item;
+    /**
+     * 退货收件信息，仅退货退款且处于 WAIT_RETURN / RETURNING / REFUNDING / REFUNDED 时返回，其余为 null：
+     * 审核通过前不暴露商家地址，三项都未配置时也为 null。取当前系统参数，不做快照（地址变更后买家应寄往新地址）。
+     */
+    private ReturnAddress returnAddress;
 }

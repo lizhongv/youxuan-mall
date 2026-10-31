@@ -23,6 +23,18 @@ public interface MemberApi {
     AddressSnapshot getAddress(Long memberId, Long addressId);
 
     /**
+     * 结算页预选地址：默认地址优先，没有默认地址取最近修改的一个；会员没有任何地址返回 null。
+     * 只用于预览（confirm），下单仍要求前端显式传 addressId，避免买家没看清地址就被代选提交。
+     */
+    AddressRef getPreferredAddress(Long memberId);
+
+    /**
+     * 校验余额支付密码，失败抛业务异常：60010 未设置、60011 错误（含剩余次数）、60012 已锁定。
+     * 交易领域必须在扣余额之前调用；计数在 Redis，不随调用方的数据库事务回滚。
+     */
+    void verifyPayPassword(Long memberId, String payPassword);
+
+    /**
      * 变更余额。delta 为负表示扣减，余额不足抛业务异常「余额不足」。
      * 同时写入账户流水，调用方需在自己的事务内调用以保证一致。
      *
@@ -63,6 +75,10 @@ public interface MemberApi {
 
     record MemberBrief(Long id, String mobile, String nickname, String avatar, Long levelId, String levelName,
                        BigDecimal discount, BigDecimal balance, Integer points, Integer status) {
+    }
+
+    /** 带 ID 的地址，结算预览回填给前端，作为提交订单时的 addressId */
+    record AddressRef(Long id, AddressSnapshot snapshot) {
     }
 
     record AddressSnapshot(String name, String mobile, String province, String city, String district, String detail) {

@@ -11,6 +11,7 @@ import com.platform.cloud.mall.trade.aftersale.dto.AftersaleReturnRequest;
 import com.platform.cloud.mall.trade.aftersale.entity.Aftersale;
 import com.platform.cloud.mall.trade.aftersale.mapper.AftersaleMapper;
 import com.platform.cloud.mall.trade.common.TradeSettings;
+import com.platform.cloud.mall.trade.common.TradeSettings.ReturnAddress;
 import com.platform.cloud.mall.trade.order.entity.Order;
 import com.platform.cloud.mall.trade.order.entity.OrderItem;
 import com.platform.cloud.mall.trade.order.enums.OrderStatus;
@@ -22,6 +23,8 @@ import com.platform.cloud.mall.trade.pay.service.PayService;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -53,6 +56,8 @@ class AftersaleServiceImplTest {
     private static final Long ORDER_ID = 5001L;
     private static final Long ITEM_ID = 6001L;
     private static final Long AS_ID = 7001L;
+    private static final ReturnAddress RETURN_ADDRESS =
+            new ReturnAddress("王五", "0755-12345678", "广东省深圳市南山区科技园 1 号 售后部");
 
     @Mock
     AftersaleMapper aftersaleMapper;
@@ -87,6 +92,7 @@ class AftersaleServiceImplTest {
     @BeforeEach
     void setUp() {
         when(settings.aftersaleDays()).thenReturn(7);
+        when(settings.returnAddress()).thenReturn(RETURN_ADDRESS);
         when(orderItemMapper.selectOne(any())).thenReturn(item());
         when(orderItemMapper.selectById(ITEM_ID)).thenReturn(item());
         when(orderItemMapper.update(isNull(), any())).thenReturn(1);
@@ -391,6 +397,68 @@ class AftersaleServiceImplTest {
 
         assertThat(a.getStatus()).isEqualTo("WAIT_RETURN");
         verify(payService, never()).refund(any(), any(), anyString());
+    }
+
+    @Test
+    void 未配置退货地址时不能同意退货() {
+        orderIs(OrderStatus.DELIVERED, null);
+        Aftersale a = aftersale("RETURN_REFUND", "APPLYING", "20.00");
+        when(settings.returnAddress()).thenReturn(null);
+
+        assertThatThrownBy(() -> service.approve(9L, AS_ID, null)).hasMessage("请先在系统参数中设置退货地址");
+        assertThat(a.getStatus()).isEqualTo("APPLYING");
+        verify(aftersaleMapper, never()).update(isNull(), any());
+    }
+
+    @Test
+    void 未配置退货地址不影响仅退款审核() {
+        orderIs(OrderStatus.DELIVERED, null);
+        Aftersale a = aftersale("REFUND", "APPLYING", "20.00");
+        when(settings.returnAddress()).thenReturn(null);
+
+        service.approve(9L, AS_ID, null);
+
+        assertThat(a.getStatus()).isEqualTo("REFUNDED");
+    }
+
+    // ------------------------------------------------------------------ 退货地址展示条件
+
+    @ParameterizedTest
+    @CsvSource({"WAIT_RETURN", "RETURNING", "REFUNDING", "REFUNDED"})
+    void 退货退款审核通过后的状态返回退货地址(String status) {
+        orderIs(OrderStatus.DELIVERED, null);
+        aftersale("RETURN_REFUND", status, "20.00");
+
+        assertThat(service.adminDetail(AS_ID).getReturnAddress()).isEqualTo(RETURN_ADDRESS);
+        assertThat(service.memberDetail(MEMBER, AS_ID).getReturnAddress()).isEqualTo(RETURN_ADDRESS);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"APPLYING", "REJECTED", "CANCELLED"})
+    void 退货退款未审核通过时不返回退货地址(String status) {
+        orderIs(OrderStatus.DELIVERED, null);
+        aftersale("RETURN_REFUND", status, "20.00");
+
+        assertThat(service.adminDetail(AS_ID).getReturnAddress()).isNull();
+        assertThat(service.memberDetail(MEMBER, AS_ID).getReturnAddress()).isNull();
+    }
+
+    @Test
+    void 仅退款不返回退货地址() {
+        orderIs(OrderStatus.DELIVERED, null);
+        aftersale("REFUND", "REFUNDED", "20.00");
+
+        assertThat(service.adminDetail(AS_ID).getReturnAddress()).isNull();
+        verify(settings, never()).returnAddress();
+    }
+
+    @Test
+    void 退货地址三项都未配置时返回null() {
+        orderIs(OrderStatus.DELIVERED, null);
+        aftersale("RETURN_REFUND", "WAIT_RETURN", "20.00");
+        when(settings.returnAddress()).thenReturn(null);
+
+        assertThat(service.adminDetail(AS_ID).getReturnAddress()).isNull();
     }
 
     @Test

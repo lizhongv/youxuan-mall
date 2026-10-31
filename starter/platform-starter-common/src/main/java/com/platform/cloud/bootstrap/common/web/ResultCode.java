@@ -25,7 +25,18 @@ public enum ResultCode {
     INTERNAL_ERROR(50000, "服务器内部错误"),
     SERVICE_UNAVAILABLE(50300, "服务暂不可用"),
 
-    BUSINESS_ERROR(60000, "业务异常");
+    BUSINESS_ERROR(60000, "业务异常"),
+
+    /*
+     * 余额支付密码。单独编码而不是统一 60000：前端要据此分别引导「去设置支付密码」、
+     * 「提示剩余次数后重新输入」、「锁定倒计时」，只靠 msg 文案判断很脆弱。
+     */
+    /** 余额支付时会员尚未设置支付密码 */
+    PAY_PASSWORD_NOT_SET(60010, "请先设置支付密码"),
+    /** 支付密码错误；msg 由调用方带上剩余次数 */
+    PAY_PASSWORD_WRONG(60011, "支付密码错误"),
+    /** 连续错误次数达到上限，已锁定 */
+    PAY_PASSWORD_LOCKED(60012, "支付密码错误次数过多，请 30 分钟后再试");
 
     private final int code;
     private final String msg;

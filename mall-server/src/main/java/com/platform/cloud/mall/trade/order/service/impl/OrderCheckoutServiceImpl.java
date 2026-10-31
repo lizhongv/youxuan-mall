@@ -12,6 +12,7 @@ import com.platform.cloud.mall.marketing.api.CouponApi.CouponOption;
 import com.platform.cloud.mall.marketing.api.SeckillApi;
 import com.platform.cloud.mall.marketing.api.SeckillApi.SeckillInfo;
 import com.platform.cloud.mall.member.api.MemberApi;
+import com.platform.cloud.mall.member.api.MemberApi.AddressRef;
 import com.platform.cloud.mall.member.api.MemberApi.AddressSnapshot;
 import com.platform.cloud.mall.member.api.MemberApi.MemberBrief;
 import com.platform.cloud.mall.trade.cart.entity.Cart;
@@ -101,7 +102,17 @@ public class OrderCheckoutServiceImpl implements OrderCheckoutService {
                 couponAmount = couponApi.calculate(memberId, couponId, goodsLines);
             }
         }
-        AddressSnapshot address = req.getAddressId() == null ? null : requireAddress(memberId, req.getAddressId());
+        // 未传地址时预选默认地址（无默认取最近修改的），结算页首次进入就能显示地址与准确运费；
+        // 会员没有地址时 address=null，运费按默认地区估算。提交订单仍要求显式传 addressId。
+        Long addressId = req.getAddressId();
+        AddressSnapshot address;
+        if (addressId != null) {
+            address = requireAddress(memberId, addressId);
+        } else {
+            AddressRef preferred = memberApi.getPreferredAddress(memberId);
+            addressId = preferred == null ? null : preferred.id();
+            address = preferred == null ? null : preferred.snapshot();
+        }
         BigDecimal freight = freightOf(c, goodsLines, address == null ? null : address.province());
         Result r = PriceCalculator.calculateWithFreight(c.lines(), member.discount(), couponAmount, freight);
 
@@ -122,7 +133,7 @@ public class OrderCheckoutServiceImpl implements OrderCheckoutService {
         }
         vo.setItems(items);
         if (address != null) {
-            vo.setAddress(toAddressVO(req.getAddressId(), address));
+            vo.setAddress(toAddressVO(addressId, address));
         }
         vo.setGoodsAmount(r.goodsAmount());
         vo.setDiscountAmount(r.discountAmount());
